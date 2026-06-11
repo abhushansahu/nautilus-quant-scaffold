@@ -1,0 +1,12 @@
+# Shared defaults for every environment. Env-specific files overlay these values.
+catalog_path: data/catalog
+results_dir: experiments/results
+artifacts_dir: artifacts
+
+logging:
+  level: INFO
+
+risk:
+  max_notional_per_order: 100000
+  max_open_positions: 5
+  max_drawdown_pct: 0.20

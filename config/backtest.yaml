@@ -1,0 +1,7 @@
+environment: backtest
+
+logging:
+  level: INFO
+
+# Backtests run against simulated venues only; no live venue connections.
+venues: []

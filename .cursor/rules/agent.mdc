@@ -1,0 +1,45 @@
+---
+description: Core project standards for the quant trading platform — NautilusTrader architecture, Python/uv, data pipeline, RL/JAX models, config/secrets, testing, and workflow skills.
+alwaysApply: true
+---
+# Project Rules – Quant Trading Platform
+
+## Languages, runtime, and package management
+- Use Python for all backend and trading logic.
+- Target the Python versions and OS that NautilusTrader supports (e.g., Python 3.12+ on Linux/macOS); do not introduce features that require a different runtime.
+- Use `uv` for dependency management and environment tasks. When adding or updating dependencies, modify `pyproject.toml` and `uv.lock` via `uv` commands, not by hand.
+
+## Core architecture
+- Treat NautilusTrader as the trading engine and infrastructure layer. Do not re‑implement matching engines, order books, or event loops that already exist in NautilusTrader.
+- All trading logic must live in the project’s extension layer (e.g., `src/nt_ext/` or equivalent), not in forks of NautilusTrader.
+- Strategies, risk rules, and adapters must be written as small, composable components rather than monolithic classes.
+
+## Data & experiments
+- Historical and live data must go through the project’s data layer (e.g., `src/data_pipeline/`), not ad‑hoc CSVs in random folders.
+- Backtest results, experiment configs, and evaluation metrics should be written to structured, machine‑readable formats (e.g., Parquet/JSON) in a consistent directory layout.
+- When changing schemas (features, data columns, file layouts), update the relevant contracts and tests.
+
+## Models, RL, and JAX
+- Keep JAX/RL code decoupled from connection details and secrets; models operate on data structures, not on exchange or broker clients.
+- Any model that runs in live trading must:
+  - Have a deterministic, serialized form (e.g., parameters saved to disk) and
+  - A small, well‑defined inference interface used by strategies.
+- RL environments should be built on top of the backtesting data / simulators; avoid inventing a second simulation system.
+
+## Configuration & secrets
+- All environment‑specific details (live vs paper vs backtest) must be configurable via files in `config/` plus environment variables, not hard‑coded.
+- Do not add real secrets to the repo. Use `.env.example` and config templates to document what is required.
+- When needing a new secret (key, token, password), document the env var name and how it is used, and assume provisioning will be handled outside the codebase.
+
+## Testing, validation, and guardrails
+- For any new strategy, risk rule, or data transformation:
+  - Add at least one unit test covering nominal behavior.
+  - Add at least one test or scenario that covers edge cases or failure modes.
+- When modifying an existing strategy or risk component, run:
+  - The test suite for the changed modules.
+  - A small backtest or replay over a known dataset when feasible.
+- Do not modify NautilusTrader upstream code. If a limitation is discovered, add a small adapter or wrapper in our extension layer.
+
+## Workflow & skills
+- When tasks fit a known workflow (e.g., “add a new strategy”, “modify data pipeline”, “tune RL model”), first look for and follow the relevant skill in `.devin/skills/`.
+- If you are unsure which skill applies, briefly summarize the task and list the skills that seem most relevant.

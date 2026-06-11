@@ -1,0 +1,80 @@
+[project]
+name = "trade-baby-trade"
+version = "0.1.0"
+description = "Lightweight production-ready quant trading platform built as an extension layer over NautilusTrader."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "nautilus-trader>=1.228.0",
+    "pandas>=2.3.3",
+    "polars>=1.41.2",
+    "pyarrow>=24.0.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "pyyaml>=6.0.3",
+    "typer>=0.26.7",
+]
+
+[project.scripts]
+tbt-backtest = "apps.backtester.main:app"
+tbt-live = "apps.live.main:app"
+tbt-train = "apps.train.main:app"
+tbt-report = "apps.report.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/core",
+    "src/nt_ext",
+    "src/data_pipeline",
+    "src/models",
+    "src/analysis",
+    "src/viz",
+    "src/apps",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# typer's declarative CLI style uses calls in argument defaults by design
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: slower end-to-end tests (deselect with '-m \"not integration\"')",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.1.0",
+    "pre-commit>=4.6.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.17",
+]
+models = [
+    "flax>=0.12.7",
+    "gymnasium>=1.3.0",
+    "jax>=0.10.1",
+    "optax>=0.2.8",
+]
+viz = [
+    "plotly>=6.8.0",
+]

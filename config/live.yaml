@@ -1,0 +1,15 @@
+environment: live
+
+logging:
+  level: INFO
+
+venues:
+  - name: BINANCE
+    api_key_env: BINANCE_API_KEY
+    api_secret_env: BINANCE_API_SECRET
+    testnet_env: BINANCE_TESTNET
+
+risk:
+  max_notional_per_order: 25000
+  max_open_positions: 3
+  max_drawdown_pct: 0.10

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Data and run artifacts
+data/
+experiments/results/
+artifacts/
+
+# Notebooks / editors / OS
+.ipynb_checkpoints/
+.DS_Store
+.idea/

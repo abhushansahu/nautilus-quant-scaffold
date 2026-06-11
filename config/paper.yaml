@@ -1,0 +1,16 @@
+environment: paper
+
+logging:
+  level: DEBUG
+
+# Paper trading uses Binance testnet. Secrets are env var NAMES, resolved at runtime.
+venues:
+  - name: BINANCE
+    api_key_env: BINANCE_API_KEY
+    api_secret_env: BINANCE_API_SECRET
+    testnet_env: BINANCE_TESTNET
+
+risk:
+  # Keep paper sizing small so testnet behavior mirrors a cautious live rollout.
+  max_notional_per_order: 10000
+  max_open_positions: 3
