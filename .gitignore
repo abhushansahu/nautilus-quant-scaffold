@@ -21,6 +21,8 @@ htmlcov/
 
 # Data and run artifacts
 data/
+data/state/
+data/cache/
 experiments/results/
 artifacts/
 

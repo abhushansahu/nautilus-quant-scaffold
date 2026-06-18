@@ -22,6 +22,7 @@ from nt_ext.risk.rules import (
 )
 from nt_ext.strategies.base import BaseSignalStrategy
 from nt_ext.strategies.multi_asset.ema_cross import EMACross, EMACrossConfig
+from nt_ext.strategies.multi_asset.switcher import SwitcherConfig, SwitcherStrategy
 
 if TYPE_CHECKING:
     from models.inference import SignalModel
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 # Registry key -> (config class, strategy class). New strategies register here.
 STRATEGY_REGISTRY: dict[str, tuple[type, type]] = {
     "ema_cross": (EMACrossConfig, EMACross),
+    "switcher": (SwitcherConfig, SwitcherStrategy),
 }
 
 # Config params coerced to Decimal before constructing the strategy config.
@@ -61,8 +63,36 @@ def build_strategy(
     config_cls, strategy_cls = STRATEGY_REGISTRY[spec.key]
 
     params: dict[str, Any] = dict(spec.params)
+    if spec.key == "switcher":
+        candidates_raw = params.pop("candidates", [])
+        candidates = [
+            StrategySpec(
+                key=c["key"],
+                instrument_id=c.get("instrument_id", spec.instrument_id),
+                bar_type=c.get("bar_type", spec.bar_type),
+                params=c.get("params", {}),
+                model_artifact=c.get("model_artifact"),
+            )
+            for c in candidates_raw
+        ]
+        for name in _DECIMAL_PARAMS & params.keys():
+            params[name] = Decimal(str(params[name]))
+        config = config_cls(
+            instrument_id=InstrumentId.from_str(spec.instrument_id),
+            bar_type=BarType.from_str(spec.bar_type),
+            **params,
+        )
+        return strategy_cls(
+            config=config,
+            candidates=candidates,
+            risk=risk,
+            risk_rules=build_risk_rules(risk) if risk else [],
+            drawdown_tracker=DrawdownTracker(risk.max_drawdown_pct) if risk else None,
+        )
+
     for name in _DECIMAL_PARAMS & params.keys():
         params[name] = Decimal(str(params[name]))
+    params.pop("name", None)
 
     config = config_cls(
         instrument_id=InstrumentId.from_str(spec.instrument_id),

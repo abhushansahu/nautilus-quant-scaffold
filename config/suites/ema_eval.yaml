@@ -1,0 +1,14 @@
+name: ema_eval
+poll_interval_secs: 30
+bar_types:
+  - EUR/USD.SIM-1-MINUTE-MID-EXTERNAL
+selection_metric: sharpe_ratio
+lookback_runs: 5
+parallelism: 2
+profiles:
+  - name: ema_fast
+    experiment: strategies/ema_cross_demo.yaml
+    environment: backtest
+  - name: ema_slow
+    experiment: strategies/ema_cross_slow.yaml
+    environment: backtest

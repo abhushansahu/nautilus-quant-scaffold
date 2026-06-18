@@ -8,13 +8,19 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+if TYPE_CHECKING:
+    from core.experiment import ExperimentConfig
+    from core.run_profile import RunProfile
+
 TradeEnv = Literal["backtest", "paper", "live"]
+
+SECRET_FIELD_NAMES = frozenset({"api_key", "api_secret", "password", "token"})
 
 DEFAULT_CONFIG_DIR = Path("config")
 
@@ -44,6 +50,19 @@ class VenueSettings(BaseModel):
     api_key_env: str | None = None
     api_secret_env: str | None = None
     testnet_env: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_literal_secrets(cls, data: object) -> object:
+        if isinstance(data, dict):
+            found = SECRET_FIELD_NAMES & data.keys()
+            if found:
+                names = ", ".join(sorted(found))
+                raise ValueError(
+                    f"Literal secret fields not allowed in config: {names}. "
+                    "Use *_env name fields instead."
+                )
+        return data
 
 
 class AppConfig(BaseModel):
@@ -86,3 +105,45 @@ def load_config(env: str | None = None, config_dir: Path = DEFAULT_CONFIG_DIR) -
     base = load_yaml(config_dir / "base.yaml")
     overlay = load_yaml(config_dir / f"{resolved}.yaml")
     return AppConfig.model_validate(deep_merge(base, overlay))
+
+
+def _resolve_experiment_path(experiment: Path, config_dir: Path) -> Path:
+    if experiment.is_absolute():
+        return experiment
+    return config_dir / experiment
+
+
+def resolve_run(
+    profile: RunProfile,
+    config_dir: Path = DEFAULT_CONFIG_DIR,
+) -> tuple[AppConfig, ExperimentConfig]:
+    """Load app + experiment config for a run profile, applying per-profile overrides."""
+    from core.experiment import load_experiment
+
+    app_cfg = load_config(profile.environment, config_dir=config_dir)
+    exp = load_experiment(_resolve_experiment_path(profile.experiment, config_dir))
+
+    overrides: dict[str, Path] = {}
+    if profile.catalog_path is not None:
+        overrides["catalog_path"] = profile.catalog_path
+    if profile.results_dir is not None:
+        overrides["results_dir"] = profile.results_dir
+    if overrides:
+        app_cfg = app_cfg.model_copy(update=overrides)
+    return app_cfg, exp
+
+
+def profile_from_cli(
+    experiment: Path,
+    env: str | None = None,
+    config_dir: Path = DEFAULT_CONFIG_DIR,
+) -> RunProfile:
+    """Build a synthetic run profile from legacy `--config` / `--env` CLI flags."""
+    from core.run_profile import RunProfile
+
+    exp_path = _resolve_experiment_path(experiment, config_dir)
+    return RunProfile(
+        name=exp_path.stem,
+        experiment=exp_path,
+        environment=resolve_env(env),
+    )

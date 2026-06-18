@@ -49,6 +49,7 @@ def write_run_results(
     account: pd.DataFrame,
     config_snapshot: dict[str, Any],
     metrics: dict[str, Any],
+    data_range: dict[str, Any] | None = None,
 ) -> RunArtifacts:
     run_dir = results_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -63,8 +64,34 @@ def write_run_results(
         "config": config_snapshot,
         "metrics": metrics,
     }
+    if data_range is not None:
+        summary["data_range"] = data_range
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str))
     return RunArtifacts(run_id=run_id, run_dir=run_dir, summary=summary)
+
+
+def append_run_index(
+    results_dir: Path,
+    artifacts: RunArtifacts,
+    profile_name: str,
+    suite_name: str,
+    data_range: dict[str, Any] | None = None,
+) -> None:
+    """Append a JSON line to the suite-level run index."""
+    index_file = results_dir / "index.jsonl"
+    index_file.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "run_id": artifacts.run_id,
+        "profile_name": profile_name,
+        "suite_name": suite_name,
+        "created_at": artifacts.summary.get("created_at"),
+        "metrics": artifacts.summary.get("metrics", {}),
+        "config_hash": artifacts.summary.get("config_hash"),
+        "data_start": (data_range or {}).get("data_start"),
+        "data_end": (data_range or {}).get("data_end"),
+    }
+    with index_file.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
 
 
 def find_latest_run(results_dir: Path) -> Path | None:

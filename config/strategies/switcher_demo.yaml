@@ -1,0 +1,42 @@
+# Switcher meta-strategy demo: delegates to EMA variants based on active_strategy.json.
+name: switcher_demo
+
+strategy:
+  key: switcher
+  instrument_id: EUR/USD.SIM
+  bar_type: EUR/USD.SIM-1-MINUTE-MID-EXTERNAL
+  params:
+    trade_size: 100000
+    reevaluate_every_bars: 5
+    flatten_on_switch: true
+    state_path: data/state/active_strategy.json
+    candidates:
+      - key: ema_cross
+        params:
+          name: ema_fast
+          fast_period: 10
+          slow_period: 30
+          trade_size: 100000
+      - key: ema_cross
+        params:
+          name: ema_slow
+          fast_period: 20
+          slow_period: 50
+          trade_size: 100000
+
+data:
+  source: synthetic
+  start: "2024-01-01T00:00:00Z"
+  num_bars: 2000
+  seed: 42
+  bar_interval_secs: 60
+
+venue:
+  name: SIM
+  starting_balance: 1_000_000 USD
+  account_type: MARGIN
+
+risk:
+  max_notional_per_order: 200000
+  max_open_positions: 1
+  max_drawdown_pct: 0.5

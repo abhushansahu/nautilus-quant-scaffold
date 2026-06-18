@@ -5,8 +5,10 @@ All persisted market data goes through this module so storage layout stays consi
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
+from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
@@ -37,8 +39,26 @@ class MarketDataCatalog:
             return
         self._catalog.write_data(bars)
 
-    def read_bars(self, bar_type: BarType | str) -> list[Bar]:
-        return self._catalog.bars(bar_types=[str(bar_type)])
+    def read_bars(
+        self,
+        bar_type: BarType | str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[Bar]:
+        bars = self._catalog.bars(bar_types=[str(bar_type)])
+        if start is not None:
+            start_ns = dt_to_unix_nanos(start)
+            bars = [bar for bar in bars if bar.ts_event >= start_ns]
+        if end is not None:
+            end_ns = dt_to_unix_nanos(end)
+            bars = [bar for bar in bars if bar.ts_event <= end_ns]
+        return bars
+
+    def latest_ts(self, bar_type: BarType | str) -> datetime | None:
+        bars = self.read_bars(bar_type)
+        if not bars:
+            return None
+        return unix_nanos_to_dt(bars[-1].ts_event)
 
     def instruments(self) -> list[Instrument]:
         return self._catalog.instruments()

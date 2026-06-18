@@ -36,6 +36,31 @@ make report
 make lint test
 ```
 
+## Suite evaluation and continuous backtesting
+
+Run multiple strategy profiles in parallel and persist ranked results:
+
+```bash
+# One-shot parallel fan-out across suite profiles
+make backtest-suite
+
+# Long-running daemon: re-evaluates when new catalog bars arrive
+make backtest-watch
+```
+
+Suite configs live in `config/suites/`. Each profile binds an experiment YAML,
+environment, and optional path overrides. Results are indexed at
+`experiments/results/index.jsonl`; the watcher updates `data/state/active_strategy.json`
+with the best-performing profile. The `switcher` meta-strategy (see
+`config/strategies/switcher_demo.yaml`) delegates to the active child in backtest and live:
+
+```bash
+# Live/paper using suite selection state + switcher config
+uv run tbt-live run --suite config/suites/ema_eval.yaml --env paper
+```
+
+Local state (`data/state/`, `data/cache/`) is gitignored.
+
 ## Environments and secrets
 
 - Select the environment with `TRADE_ENV` (`backtest` | `paper` | `live`) or the `--env` CLI flag.

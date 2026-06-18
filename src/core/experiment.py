@@ -25,7 +25,10 @@ class DataSpec(BaseModel):
     """Where backtest data comes from: deterministic synthetic bars or the Parquet catalog."""
 
     source: Literal["synthetic", "catalog"] = "synthetic"
+    mode: Literal["full", "incremental", "rolling"] = "full"
     start: datetime
+    end: datetime | None = None
+    lookback_bars: int = Field(default=500, gt=0)
     num_bars: int = Field(default=2000, gt=1)
     seed: int = 42
     bar_interval_secs: int = Field(default=60, gt=0)

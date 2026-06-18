@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck test test-unit backtest-smoke report clean
+.PHONY: setup lint format typecheck test test-unit backtest-smoke backtest-suite backtest-watch report clean
 
 setup:
 	uv sync --all-groups
@@ -22,6 +22,12 @@ test-unit:
 
 backtest-smoke:
 	uv run tbt-backtest run --config config/strategies/ema_cross_demo.yaml --env backtest
+
+backtest-suite:
+	uv run tbt-backtest suite --config config/suites/ema_eval.yaml
+
+backtest-watch:
+	uv run tbt-backtest watch --suite config/suites/ema_eval.yaml
 
 report:
 	uv run tbt-report latest
