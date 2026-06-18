@@ -1,0 +1,68 @@
+---
+description: SOLID design principles mapped to this quant trading platform — extension boundaries, registries, protocols, and review checklist.
+alwaysApply: false
+---
+# Design Principles (SOLID)
+
+Apply SOLID at **extension boundaries**; pragmatism is acceptable inside NautilusTrader lifecycle hooks (`on_start`, `on_bar`).
+
+## Single Responsibility (S)
+
+Each module should have one reason to change:
+
+- `src/nt_ext/` — trading extensions (strategies, risk rules, factories)
+- `src/data_pipeline/` — ingestion, normalization, catalog, bar loading
+- `src/models/` — ML/RL training, inference contracts, artifact loading
+- `src/apps/` — CLI entrypoints and orchestration only
+- `src/analysis/` — pure analytics on persisted results
+
+Do not mix strategy logic, data I/O, persistence, and engine wiring in one function or class.
+
+## Open/Closed (O)
+
+Extend behavior via **registries** and **protocols**; avoid editing shared dispatchers:
+
+- `STRATEGY_REGISTRY` in `src/nt_ext/factories.py` — register new strategies; do not add `if spec.key == ...` branches to `build_strategy`.
+- `MODEL_LOADERS` in `src/models/loader.py` — register new model backends; apps must not import concrete model classes.
+- `VENUE_CLIENT_FACTORIES` in `src/apps/live/node.py` — register new venue clients; do not add `if venue.name == ...` in the main build path.
+- `OrderRiskRule` protocol — add new rule classes without changing existing ones.
+
+## Liskov Substitution (L)
+
+Subclasses must honor `BaseSignalStrategy` hooks (`register_indicators`, `on_signal_bar`). Do not monkey-patch child strategy attributes at runtime (no patching `portfolio`, `cache`, `enter_long`, etc.). Prefer composition: signal engines return intents; the parent owns order submission.
+
+## Interface Segregation (I)
+
+Keep protocols small and focused:
+
+- `SignalModel.predict(features)` — one method, numpy in/out
+- `OrderRiskRule.check(ctx)` — one method, `OrderContext` DTO
+- `ModelLoader.load(artifact_path)` — one method
+
+Pass DTOs (`OrderContext`, feature arrays) into models and rules, not NautilusTrader engine objects.
+
+## Dependency Inversion (D)
+
+High-level modules depend on abstractions:
+
+- Strategies depend on `SignalModel`, not `JaxSignalModel`
+- Apps depend on `load_signal_model()` and `build_strategy()`, not concrete implementations
+- Concrete wiring lives only in `nt_ext/factories`, `models/loader`, and `apps/live/node`
+
+## Import boundaries
+
+| Layer | May import | Must not import |
+| --- | --- | --- |
+| `apps/` | protocols, factories, config, data_pipeline public API | `models.jax_signal`, concrete strategy classes |
+| `nt_ext/strategies/` | `models.inference.SignalModel`, risk protocols | JAX, venue clients, secrets |
+| `models/inference.py` | numpy only | JAX, NautilusTrader |
+
+## Review checklist
+
+Apply on every strategy, risk rule, model, factory, or data-pipeline change:
+
+1. No new `if spec.key ==` or `if venue.name ==` branches in shared builders — use a registry entry instead.
+2. No concrete model imports outside `models/` and `nt_ext/factories`.
+3. New risk rules implement `OrderRiskRule`; new models implement `SignalModel`.
+4. Unit tests use fake protocol implementations where applicable.
+5. `make lint test` passes for changed modules.

@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from nautilus_trader.adapters.binance.common.enums import BinanceEnvironment
 
-from apps.live.node import build_trading_node_config
-from core.config import load_config
+from apps.live.node import UnknownVenueError, build_trading_node_config
+from core.config import VenueSettings, load_config
 from core.secrets import MissingSecretError
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
@@ -44,3 +44,10 @@ class TestBuildTradingNodeConfig:
         app_cfg = load_config("backtest", config_dir=CONFIG_DIR)
         with pytest.raises(ValueError, match="paper/live"):
             build_trading_node_config(app_cfg)
+
+    def test_unknown_venue_raises(self, binance_env):
+        app_cfg = load_config("paper", config_dir=CONFIG_DIR)
+        unknown = VenueSettings(name="UNKNOWN", api_key_env="K", api_secret_env="S")
+        patched = app_cfg.model_copy(update={"venues": [unknown]})
+        with pytest.raises(UnknownVenueError, match="UNKNOWN"):
+            build_trading_node_config(patched)

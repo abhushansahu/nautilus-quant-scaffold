@@ -15,6 +15,7 @@ from core.active_strategy import DEFAULT_STATE_PATH, ActiveStrategyState
 from core.config import DEFAULT_CONFIG_DIR, profile_from_cli, resolve_run
 from core.experiment import load_experiment
 from core.run_profile import load_run_suite
+from models.loader import load_signal_model
 from nt_ext.factories import build_strategy
 
 app = typer.Typer(help="Run paper/live trading via a NautilusTrader TradingNode.")
@@ -67,7 +68,12 @@ def run(
         app_cfg, exp = resolve_run(profile, config_dir=DEFAULT_CONFIG_DIR)
 
     node = TradingNode(config=build_trading_node_config(app_cfg))
-    node.trader.add_strategy(build_strategy(exp.strategy, risk=exp.risk or app_cfg.risk))
+    signal_model = None
+    if exp.strategy.model_artifact is not None:
+        signal_model = load_signal_model(exp.strategy.model_artifact)
+    node.trader.add_strategy(
+        build_strategy(exp.strategy, risk=exp.risk or app_cfg.risk, signal_model=signal_model)
+    )
     node.add_data_client_factory(BINANCE, BinanceLiveDataClientFactory)
     node.add_exec_client_factory(BINANCE, BinanceLiveExecClientFactory)
     node.build()

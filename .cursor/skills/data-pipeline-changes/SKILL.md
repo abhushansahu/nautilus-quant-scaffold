@@ -28,3 +28,15 @@ Workflow:
 5. Run:
    - Unit tests for the data pipeline.
    - A small end‑to‑end flow (ingestion → storage → backtest/model) to ensure nothing breaks.
+
+SOLID checklist (see `.cursor/rules/design-principles.mdc`):
+- New sources implement the existing normalized schema; do not fork storage layouts.
+- Keep ingestion, caching, and bar resolution in separate modules (`bar_sources`, `bar_cache`, `instrument_resolver`).
+- Expose narrow protocols (`CatalogBarSource`, `SyntheticBarSource`) rather than bloating `BarDataLoader`.
+- Run `make lint test` for changed pipeline modules.
+
+PR checklist:
+- [ ] New sources implement the existing normalized schema
+- [ ] Loader, cache, and bar resolution stay in separate modules
+- [ ] Unit test uses fake protocol implementation where applicable
+- [ ] `make lint test` passes for changed modules

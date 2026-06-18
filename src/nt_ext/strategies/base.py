@@ -18,6 +18,7 @@ from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.trading.strategy import Strategy
 
 from nt_ext.risk.rules import DrawdownTracker, OrderContext, OrderRiskRule
+from nt_ext.strategies.signals import PositionState, SignalIntent
 
 if TYPE_CHECKING:
     from models.inference import SignalModel
@@ -167,3 +168,20 @@ class BaseSignalStrategy(Strategy):
     @property
     def is_flat(self) -> bool:
         return self.portfolio.is_flat(self.config.instrument_id)
+
+    def _position_state(self) -> PositionState:
+        return PositionState(
+            is_net_long=self.is_net_long,
+            is_net_short=self.is_net_short,
+            is_flat=self.is_flat,
+        )
+
+    def _execute_intent(self, intent: SignalIntent, last_px: float) -> None:
+        if intent == SignalIntent.ENTER_LONG:
+            self.flatten()
+            self.enter_long(last_px)
+        elif intent == SignalIntent.ENTER_SHORT:
+            self.flatten()
+            self.enter_short(last_px)
+        elif intent == SignalIntent.FLAT:
+            self.flatten()

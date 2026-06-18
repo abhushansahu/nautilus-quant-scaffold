@@ -26,3 +26,17 @@ Workflow:
    - Unit tests covering decision logic (e.g., signal thresholds, position sizing).
    - A small backtest scenario to validate overall behavior on historical data.
 5. Run tests and a representative backtest (or replay) before considering the task complete.
+
+SOLID checklist (see `.cursor/rules/design-principles.mdc`):
+- Register new strategies in `STRATEGY_REGISTRY` with a `builder_fn` only when special wiring is needed; do not add `if spec.key ==` branches to `build_strategy`.
+- Inject `SignalModel` via the factory; strategies must not import concrete model classes.
+- New risk rules implement `OrderRiskRule`; do not embed risk policy inline in strategy logic.
+- Meta-strategies use composition (signal intents); no runtime monkey-patching of child strategies.
+- Unit tests use fake protocol implementations where applicable; run `make lint test`.
+
+PR checklist:
+- [ ] No new `if spec.key ==` in `factories.py`
+- [ ] No concrete model imports outside `models/` + `nt_ext/factories`
+- [ ] New risk rules implement `OrderRiskRule`
+- [ ] Unit test uses fake protocol implementation where applicable
+- [ ] `make lint test` passes for changed modules

@@ -10,6 +10,7 @@ from nt_ext.factories import UnknownStrategyError, build_strategy
 from nt_ext.risk.engine import build_risk_engine_config
 from nt_ext.strategies.multi_asset.ema_cross import EMACross
 from nt_ext.strategies.options.selection import select_option_contract
+from tests.fakes import FakeSignalModel
 
 RISK = RiskSettings(max_notional_per_order=200_000, max_open_positions=1, max_drawdown_pct=0.5)
 
@@ -27,8 +28,9 @@ def ema_spec(**param_overrides) -> StrategySpec:
 
 class TestStrategyFactory:
     def test_builds_ema_cross_with_risk_wiring(self):
-        strategy = build_strategy(ema_spec(), risk=RISK)
+        strategy = build_strategy(ema_spec(), risk=RISK, signal_model=FakeSignalModel(0.25))
         assert isinstance(strategy, EMACross)
+        assert strategy.signal_model is not None
         assert strategy.config.fast_period == 10
         assert strategy.config.slow_period == 30
         assert {rule.name for rule in strategy.risk_rules} == {

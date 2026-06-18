@@ -27,3 +27,11 @@ Workflow:
    - Where does live trading start?
    - Where do backtests start?
 4. Before creating a new module or function, search for similar logic first and reuse or extend it when possible.
+
+Design principles:
+- Read `.cursor/rules/design-principles.mdc` for SOLID guidance mapped to this repo.
+- Key extension points (registries and protocols):
+  - `STRATEGY_REGISTRY` — `src/nt_ext/factories.py`
+  - `SignalModel` / `ModelLoader` — `src/models/inference.py`, `src/models/loader.py`
+  - `OrderRiskRule` — `src/nt_ext/risk/rules.py`
+  - `VENUE_CLIENT_FACTORIES` — `src/apps/live/node.py`

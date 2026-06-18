@@ -38,3 +38,14 @@ class JaxSignalModel:
         x = jnp.asarray(transform_raw_features(features))
         signal = float(mlp_forward(self._params, x)[0])
         return max(-1.0, min(1.0, signal))
+
+
+class JaxSignalModelLoader:
+    def load(self, artifact_path: Path) -> JaxSignalModel:
+        return JaxSignalModel.from_artifact(artifact_path)
+
+
+def register_jax_model_loader() -> None:
+    from models.loader import register_model_loader
+
+    register_model_loader("jax_mlp", JaxSignalModelLoader())

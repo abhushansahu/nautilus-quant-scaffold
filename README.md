@@ -70,6 +70,8 @@ Local state (`data/state/`, `data/cache/`) is gitignored.
 
 ## Adding things
 
+Design and review standards follow SOLID principles — see [`.cursor/rules/design-principles.mdc`](.cursor/rules/design-principles.mdc).
+
 - **A strategy**: subclass `nt_ext.strategies.base.BaseSignalStrategy`, place it under
   `src/nt_ext/strategies/multi_asset/` or `src/nt_ext/strategies/options/`, add a YAML config under
   `config/strategies/`, register it in `src/nt_ext/factories.py`, and add unit tests plus a small

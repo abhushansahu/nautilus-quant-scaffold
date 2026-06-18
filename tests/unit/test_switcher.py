@@ -5,6 +5,7 @@ from core.config import RiskSettings
 from core.experiment import StrategySpec
 from nt_ext.factories import build_strategy
 from nt_ext.strategies.multi_asset.switcher import SwitcherStrategy
+from nt_ext.strategies.signals import PositionState, SignalIntent
 
 RISK = RiskSettings(max_notional_per_order=200_000, max_open_positions=1, max_drawdown_pct=0.5)
 
@@ -82,7 +83,10 @@ class TestSwitcherStrategy:
         strategy._refresh_active_child(force=True)
         child = strategy._active_child
         assert child is not None
-        child.on_signal_bar = MagicMock()
+        child.evaluate = MagicMock(return_value=SignalIntent.NOOP)
+        strategy._position_state = MagicMock(
+            return_value=PositionState(is_net_long=False, is_net_short=False, is_flat=True)
+        )
         bar = MagicMock()
         strategy.on_signal_bar(bar)
-        child.on_signal_bar.assert_called_once_with(bar)
+        child.evaluate.assert_called_once()

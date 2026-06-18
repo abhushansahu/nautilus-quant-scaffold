@@ -7,6 +7,9 @@ never logged or persisted.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from nautilus_trader.adapters.binance import (
     BINANCE,
     BinanceAccountType,
@@ -20,6 +23,17 @@ from nautilus_trader.model.identifiers import TraderId
 from core.config import AppConfig, VenueSettings
 from core.secrets import resolve_secret
 
+VenueClientFactory = Callable[[VenueSettings, bool], tuple[Any, Any]]
+
+
+class UnknownVenueError(KeyError):
+    def __init__(self, name: str) -> None:
+        super().__init__(
+            f"No client factory wired for venue '{name}'. "
+            f"Registered: {sorted(VENUE_CLIENT_FACTORIES)}. "
+            "Add a factory in apps.live.node.VENUE_CLIENT_FACTORIES."
+        )
+
 
 def _is_truthy(value: str | None, default: bool) -> bool:
     if value is None:
@@ -27,7 +41,7 @@ def _is_truthy(value: str | None, default: bool) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-def _binance_client_configs(
+def _binance_client_factory(
     venue: VenueSettings,
     default_testnet: bool,
 ) -> tuple[BinanceDataClientConfig, BinanceExecClientConfig]:
@@ -55,6 +69,15 @@ def _binance_client_configs(
     return data_cfg, exec_cfg
 
 
+VENUE_CLIENT_FACTORIES: dict[str, VenueClientFactory] = {
+    "BINANCE": _binance_client_factory,
+}
+
+VENUE_CLIENT_KEYS: dict[str, str] = {
+    "BINANCE": BINANCE,
+}
+
+
 def build_trading_node_config(app_cfg: AppConfig) -> TradingNodeConfig:
     """Map config/<env>.yaml venues onto live data/exec client configs."""
     if app_cfg.environment == "backtest":
@@ -62,21 +85,17 @@ def build_trading_node_config(app_cfg: AppConfig) -> TradingNodeConfig:
     if not app_cfg.venues:
         raise ValueError(f"No venues configured for environment '{app_cfg.environment}'")
 
-    # Paper environments must never silently hit production endpoints.
     default_testnet = app_cfg.environment == "paper"
 
-    data_clients = {}
-    exec_clients = {}
+    data_clients: dict[str, Any] = {}
+    exec_clients: dict[str, Any] = {}
     for venue in app_cfg.venues:
-        if venue.name == "BINANCE":
-            data_cfg, exec_cfg = _binance_client_configs(venue, default_testnet)
-            data_clients[BINANCE] = data_cfg
-            exec_clients[BINANCE] = exec_cfg
-        else:
-            raise ValueError(
-                f"No client factory wired for venue '{venue.name}'. "
-                f"Add it in apps.live.node.build_trading_node_config."
-            )
+        if venue.name not in VENUE_CLIENT_FACTORIES:
+            raise UnknownVenueError(venue.name)
+        data_cfg, exec_cfg = VENUE_CLIENT_FACTORIES[venue.name](venue, default_testnet)
+        client_key = VENUE_CLIENT_KEYS[venue.name]
+        data_clients[client_key] = data_cfg
+        exec_clients[client_key] = exec_cfg
 
     return TradingNodeConfig(
         trader_id=TraderId(f"TRADER-{app_cfg.environment.upper()}"),
