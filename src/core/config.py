@@ -110,7 +110,13 @@ def load_config(env: str | None = None, config_dir: Path = DEFAULT_CONFIG_DIR) -
 def _resolve_experiment_path(experiment: Path, config_dir: Path) -> Path:
     if experiment.is_absolute():
         return experiment
-    return config_dir / experiment
+    try:
+        relative = experiment.relative_to(config_dir)
+    except ValueError:
+        if experiment.parts and experiment.parts[0] == config_dir.name:
+            return config_dir / Path(*experiment.parts[1:])
+        return config_dir / experiment
+    return config_dir / relative
 
 
 def resolve_run(
@@ -133,17 +139,12 @@ def resolve_run(
     return app_cfg, exp
 
 
-def profile_from_cli(
-    experiment: Path,
-    env: str | None = None,
-    config_dir: Path = DEFAULT_CONFIG_DIR,
-) -> RunProfile:
+def profile_from_cli(experiment: Path, env: str | None = None) -> RunProfile:
     """Build a synthetic run profile from legacy `--config` / `--env` CLI flags."""
     from core.run_profile import RunProfile
 
-    exp_path = _resolve_experiment_path(experiment, config_dir)
     return RunProfile(
-        name=exp_path.stem,
-        experiment=exp_path,
+        name=experiment.stem,
+        experiment=experiment,
         environment=resolve_env(env),
     )

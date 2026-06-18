@@ -25,7 +25,7 @@ def run(
     config: Path = typer.Option(..., help="Path to the experiment YAML (config/strategies/...)"),
     env: str = typer.Option("backtest", help="Environment: backtest|paper|live"),
 ) -> None:
-    profile = profile_from_cli(config, env, config_dir=DEFAULT_CONFIG_DIR)
+    profile = profile_from_cli(config, env)
     app_cfg, exp = resolve_run(profile, config_dir=DEFAULT_CONFIG_DIR)
     artifacts = run_experiment(exp, app_cfg)
 

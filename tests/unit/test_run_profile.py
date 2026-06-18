@@ -47,10 +47,17 @@ class TestResolveRun:
         profile = profile_from_cli(
             CONFIG_DIR / "strategies" / "ema_cross_demo.yaml",
             env="backtest",
-            config_dir=CONFIG_DIR,
         )
         assert profile.name == "ema_cross_demo"
         assert profile.environment == "backtest"
+
+    def test_profile_from_cli_resolves_via_resolve_run(self):
+        profile = profile_from_cli(
+            Path("config/strategies/ema_cross_demo.yaml"),
+            env="backtest",
+        )
+        _, exp = resolve_run(profile, config_dir=CONFIG_DIR)
+        assert exp.name == "ema_cross_demo"
 
 
 class TestSecretGuardrails:

@@ -64,7 +64,7 @@ def run(
             f"({state.metric}={state.metric_value})"
         )
     else:
-        profile = profile_from_cli(config, env, config_dir=DEFAULT_CONFIG_DIR)  # type: ignore[arg-type]
+        profile = profile_from_cli(config, env)  # type: ignore[arg-type]
         app_cfg, exp = resolve_run(profile, config_dir=DEFAULT_CONFIG_DIR)
 
     node = TradingNode(config=build_trading_node_config(app_cfg))
