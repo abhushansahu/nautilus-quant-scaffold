@@ -27,8 +27,9 @@ def suite_config(tmp_path, monkeypatch):
     suite = suite.model_copy(update={"profiles": profiles, "parallelism": 1})
     app_cfg = load_config("backtest", config_dir=CONFIG_DIR).model_copy(
         update={
-            "logging": load_config("backtest", config_dir=CONFIG_DIR)
-            .logging.model_copy(update={"level": "ERROR"}),
+            "logging": load_config("backtest", config_dir=CONFIG_DIR).logging.model_copy(
+                update={"level": "ERROR"}
+            ),
             "results_dir": base_results,
         }
     )

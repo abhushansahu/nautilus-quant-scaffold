@@ -120,7 +120,7 @@ class RunOrchestrator:
                 ) as pool:
                     futures = [pool.submit(run_profile_worker, *args) for args in payload]
                     raw = [f.result() for f in futures]
-            except (PermissionError, NotImplementedError):
+            except PermissionError, NotImplementedError:
                 raw = [run_profile_worker(*args) for args in payload]
 
         return [self._deserialize_result(item) for item in raw]

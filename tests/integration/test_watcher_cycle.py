@@ -63,8 +63,9 @@ def watcher_setup(tmp_path, monkeypatch):
         update={
             "catalog_path": catalog_path,
             "results_dir": results_dir,
-            "logging": load_config("backtest", config_dir=CONFIG_DIR)
-            .logging.model_copy(update={"level": "ERROR"}),
+            "logging": load_config("backtest", config_dir=CONFIG_DIR).logging.model_copy(
+                update={"level": "ERROR"}
+            ),
         }
     )
     monkeypatch.setattr("apps.backtester.watcher.load_config", lambda *a, **k: app_cfg)
