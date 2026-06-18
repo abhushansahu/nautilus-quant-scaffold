@@ -6,7 +6,7 @@ alwaysApply: true
 
 ## Languages, runtime, and package management
 - Use Python for all backend and trading logic.
-- Target the Python versions and OS that NautilusTrader supports (e.g., Python 3.12+ on Linux/macOS); do not introduce features that require a different runtime.
+- Target the Python versions and OS that NautilusTrader supports (e.g., Python 3.14+ on Linux/macOS); do not introduce features that require a different runtime.
 - Use `uv` for dependency management and environment tasks. When adding or updating dependencies, modify `pyproject.toml` and `uv.lock` via `uv` commands, not by hand.
 
 ## Core architecture

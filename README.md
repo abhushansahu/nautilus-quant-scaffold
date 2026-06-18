@@ -23,7 +23,7 @@ models, analysis, and operational glue.
 ## Quickstart
 
 ```bash
-# 1. Install (requires uv, Python 3.12+)
+# 1. Install (requires uv, Python 3.14+)
 make setup
 
 # 2. Run the smoke backtest (EMA-cross demo on deterministic synthetic data)
