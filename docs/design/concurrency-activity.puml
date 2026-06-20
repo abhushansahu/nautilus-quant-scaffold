@@ -1,60 +1,78 @@
 @startuml concurrency-activity
-title trade_baby_trade — Strategy Fan-out / Fan-in (scatter → reduce → join barrier)
+title trade_baby_trade — Concurrency Model (live NT loop + offline research)
 
 skinparam conditionStyle inside
 
+|Live path — TradingNode|
 start
-:IngestedDataset ready (read-only);
+:TradingNode.run() — single-threaded event loop;
 note right
-  Shared across workers — fork / shared-memory,
-  NOT re-serialized per task.
+  Strategies and Actors are concurrent
+  components on the NT MessageBus.
+  No parallel ingestion pipeline.
 end note
 
-:AnalysisEngine.executor.map(strategies, dataset);
-note right: ProcessPoolExecutor (CPU-bound → bypass GIL)
-
+:DataEngine delivers events;
 fork
-  partition "worker proc 1" {
-    :Strategy A.evaluate(dataset);
-    :emit signals_A;
-  }
-  :as_completed → selector.offer(signals_A);
+  :SessionActor publishes session_phase;
 fork again
-  partition "worker proc 2" {
-    :Strategy B.evaluate(dataset);
-    :emit signals_B;
-  }
-  :as_completed → selector.offer(signals_B);
+  :RegimeActor publishes regime_tag;
 fork again
-  partition "worker proc k" {
-    :Strategy N.evaluate(dataset);
-    :emit signals_N;
-  }
-  :as_completed → selector.offer(signals_N);
+  :Strategy.on_option_chain(slice);
+  :evaluate layered gates;
+  if (all gates pass?) then (yes)
+    :GreeksCalculator.portfolio_greeks();
+    :RiskPolicy check;
+    if (policy pass?) then (yes)
+      :submit_order_list → RiskEngine → ExecutionEngine;
+    else (no)
+      :journal reject;
+    endif
+  else (no)
+    :journal skip;
+  endif
+fork again
+  :Strategy.on_quote_tick / on_option_greeks;
+  :post-entry hedge / flatten;
 end fork
 
-note right
-  offer() runs as each future resolves —
-  a streaming fold into a bounded heap that
-  OVERLAPS the still-running strategies.
-end note
-
-:JOIN BARRIER — wait(ALL_COMPLETED, timeout);
-if (any laggard past timeout?) then (yes)
-  :cancel future + journal;
-  :proceed in degraded mode;
+if (N strategies compete for capital?) then (yes)
+  :SelectorActor join barrier;
+  :apply DiversificationPolicy TopN;
+  :deterministic sort;
 else (no)
+  :single Strategy — no selector;
 endif
 
-:selector.finalize();
+:LearningModule.observe(fill);
+:Journal record;
+stop
+
+|Offline research — optional, never on order path|
+start
+:Load NT catalog snapshots;
 note right
-  Barrier-time GLOBAL pass:
-  DiversificationPolicy (max_per_instrument,
-  max_gross_risk) needs ALL candidates →
-  cannot pick TopN before the join.
+  ProcessPool map-reduce for heavy
+  factor research, walk-forward calibration,
+  strategy retirement analysis.
 end note
-:deterministic sort (score, strategy_id);
-note right: reproducible TopN despite\nnon-deterministic completion order
-:ResultSet{ selected: TopN };
+
+:ProcessPoolExecutor.map(research_fn, snapshots);
+fork
+  partition "worker 1" {
+    :factor analysis A;
+  }
+fork again
+  partition "worker 2" {
+    :factor analysis B;
+  }
+end fork
+
+:aggregate results offline;
+:feed back to Strategy config / RiskPolicy;
+note right
+  Results update config only —
+  never block or drive the live event loop.
+end note
 stop
 @enduml

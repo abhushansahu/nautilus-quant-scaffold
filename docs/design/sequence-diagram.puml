@@ -1,100 +1,90 @@
 @startuml sequence-diagram
-title trade_baby_trade — Sequence Diagram (complete hourly flow)
+title trade_baby_trade — Sequence Diagram (live 0DTE flow)
 
 skinparam sequenceMessageAlign center
 autonumber
 
-actor "Clock\n(hourly)" as Clock
-participant "IngestionScheduler" as Sched
-participant "IngestionService" as Ingest
-participant "DataSource[*]\n(IB/Binance/Derive)" as Src
-participant "AltDataSource[*]\n(sentiment/onchain)" as Alt
-participant "AnalysisEngine" as Analyze
-participant "StrategyExecutor\n(ProcessPool, GIL-free)" as Pool
-participant "Strategy A..N\n(N worker procs)" as Strat
-participant "ResultSelector\n(incremental reduce)" as Select
-participant "ActionEngine" as Action
-participant "RiskManager" as Risk
-participant "PortfolioManager" as Port
-participant "ActorClassifier" as Actor
-participant "Executor" as Exec
-participant "nautilus_trader\nExecutionEngine" as NT
+participant "TradingNode" as TN
+participant "DataEngine\n+ OptionChainManager" as DE
+participant "SessionActor" as Sess
+participant "RegimeActor" as Reg
+participant "Strategy\n(0DTE)" as Strat
+participant "GreeksCalculator" as GC
+participant "RiskEngine" as RE
+participant "ExecutionEngine" as EE
+participant "Portfolio" as PF
 participant "LearningModule" as Learn
 participant "Journal" as Journal
 
-== Ingestion (every 1h) ==
-Clock -> Sched : on_timer()
-Sched -> Ingest : collect(window)
-Ingest -> Src : fetch(window)
-Src --> Ingest : List<MarketSnapshot>
-Ingest -> Alt : fetch(window)
-Alt --> Ingest : List<AltDataSignal>
-Ingest --> Sched : IngestedDataset
-Sched -> Journal : record(INGEST, window_id)
+== Node start — instrument load ==
+TN -> DE : build_options_chain (IB) / load instruments
+DE --> TN : OptionContract + OptionSpread InstrumentIds
+TN -> Sess : on_start()
+TN -> Reg : on_start()
+TN -> Strat : on_start()
 
-== Analysis + ResultSet (parallel fan-out / fan-in) ==
-Sched -> Analyze : analyze(dataset)
-note over Analyze, Pool
-  Strategies are independent + CPU-bound →
-  scatter across N workers. Dataset is
-  read-only → shared (fork / shared-memory),
-  not re-pickled per task.
+== Subscribe — event-driven data (not batch fetch) ==
+Strat -> DE : subscribe_quote_ticks(underlying)
+Strat -> DE : subscribe_option_chain(series_id,\nsnapshot_interval_ms=60_000)
+note over Strat, DE
+  WARM tier: chain snapshots for signal gen.
+  HOT tier: quote ticks on underlying + open legs.
 end note
-Analyze -> Pool : map(strategies, dataset) -> futures[]
+Sess -> Strat : publish session_phase (MessageBus)
+Reg -> Strat : publish regime_tag (MessageBus)
 
-par Strategy A  (worker proc 1)
-  Pool -> Strat : evaluate(dataset)
-  Strat --> Pool : signals_A
-  Pool --> Select : as_completed: offer(signals_A)
-  note right of Select : fold into running\nheap (overlaps compute)
-else Strategy B  (worker proc 2)
-  Pool -> Strat : evaluate(dataset)
-  Strat --> Pool : signals_B
-  Pool --> Select : as_completed: offer(signals_B)
-else Strategy N  (worker proc k)
-  Pool -> Strat : evaluate(dataset)
-  Strat --> Pool : signals_N
-  Pool --> Select : as_completed: offer(signals_N)
-end
+== Signal evaluation — on_option_chain ==
+DE -> Strat : on_option_chain(OptionChainSlice)
+Strat -> Strat : build TradeIntent\n(edge, liquidity, target InstrumentId)
 
-== Barrier: join (wait ALL_COMPLETED) ==
-Analyze -> Pool : wait(timeout) — ALL_COMPLETED
-note over Pool, Select
-  Laggards past timeout are cancelled +
-  journaled; selection proceeds degraded.
-end note
-Analyze -> Select : finalize()
-Select -> Select : apply DiversificationPolicy,\npick TopN, deterministic sort
-Select --> Sched : ResultSet{selected: TopN}
-Select -> Journal : record(RESULT, result_id)
-
-== Action (risk + portfolio + actor) ==
-Sched -> Action : decide(resultSet)
-loop each selected signal
-  Action -> Port : state() / size(signal, balance)
-  Port --> Action : PortfolioState + target_qty
-  Action -> Risk : assess(decision, portfolio)
-  Risk --> Action : RiskAssessment
-  alt within limits
-    Action -> Actor : classify(decision)
-    Actor --> Action : ActorKind
-    alt actor = AUTOMATION
-      Action -> Exec : submit(ticket)
-      Exec -> NT : submit_order(order)
-      NT --> Exec : OrderStatus
-    else actor = HUMAN
-      Action -> Journal : record(ACT, "awaiting human approval")
-      note right of Action : blocks until manual approve/decline
+alt edge gate fails
+  Strat -> Journal : record(GATE, "edge rejected")
+else liquidity gate fails
+  Strat -> Journal : record(GATE, "liquidity rejected")
+else regime gate fails
+  Strat -> Journal : record(GATE, "regime rejected")
+else session gate fails
+  Strat -> Journal : record(GATE, "session blackout")
+else all gates pass
+  Strat -> GC : portfolio_greeks(spot_shock, vol_shock)
+  GC --> Strat : PortfolioGreeks
+  Strat -> Strat : RiskPolicy.check(projected greeks)
+  alt greek policy fails
+    Strat -> Journal : record(GATE, "greek limit breached")
+  else greek policy pass
+    Strat -> Strat : build OrderList\n(OptionSpread / IB BAG)
+    Strat -> RE : submit_order_list(orders)
+    RE -> RE : notional / rate / qty checks
+    alt RiskEngine rejects
+      RE --> Strat : denied
+      Strat -> Journal : record(ACT, "RiskEngine denied")
+    else RiskEngine accepts
+      RE -> EE : route to venue
+      EE --> Strat : OrderAccepted
+      Strat -> Journal : record(ACT, order_id)
     end
-  else breached limits
-    Action -> Journal : record(ACT, "rejected: " + rules)
   end
 end
 
-== Learning (feedback) ==
-NT --> Learn : OrderFilled / PositionChanged
-Learn -> Learn : realized PnL vs certainty
-Learn -> Learn : update_models()
+== Post-entry — continuous management ==
+loop while InPosition
+  DE -> Strat : on_quote_tick(underlying)
+  DE -> Strat : on_option_greeks(open legs)
+  alt delta band breach
+    Strat -> Strat : hedge via contingent order
+    Strat -> RE : submit_order(hedge)
+  else TP / SL / time stop
+    Strat -> RE : submit_order_list(flatten)
+  else SessionActor flatten signal
+    Sess -> Strat : flatten_signal
+    Strat -> RE : submit_order_list(flatten)
+  end
+end
+
+== Fill → learning ==
+EE -> PF : OrderFilled
+PF -> Strat : on_order_filled
+EE -> Learn : OrderFilled event
+Learn -> Learn : attribute PnL\n(theta, gamma, vega, slippage)
 Learn -> Journal : record(LEARN, LearningRecord)
-Learn --> Sched : cycle complete
 @enduml

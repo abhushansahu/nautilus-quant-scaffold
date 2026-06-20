@@ -1,98 +1,76 @@
 @startuml data-model
-title trade_baby_trade — Lower-Level Data Model (entities passed between pipeline stages)
+title trade_baby_trade — Custom Data Model (NT types referenced, not duplicated)
 
 hide empty members
 skinparam classAttributeIconSize 0
 
 ' ====================================================================
-' Shared enums / value objects
+' Enums (custom routing / classification)
 ' ====================================================================
-enum AssetClass {
-  SPOT
-  OPTION
-  FUTURE
-  PERP
-}
-
-enum Venue {
-  INTERACTIVE_BROKERS
-  BINANCE
-  DERIVE
-  OTHER
-}
-
-enum Side {
-  BUY
-  SELL
-}
-
 enum ActorKind {
   HUMAN
   AUTOMATION
 }
 
-class InstrumentId <<value>> {
-  +symbol: str
-  +venue: Venue
-  +asset_class: AssetClass
+enum RegimeTag {
+  CHOP
+  TREND
+  PIN_RISK
+  UNKNOWN
+}
+
+enum GateStage {
+  EDGE
+  LIQUIDITY
+  REGIME
+  SESSION
+  GREEK
+  OPERATIONAL
+  RISK_ENGINE
 }
 
 ' ====================================================================
-' 1. INGESTION — what the hourly job produces
+' Trade intent — replaces StrategySignal.option: Side
 ' ====================================================================
-class IngestionWindow <<entity>> {
-  +window_id: UUID
-  +opened_at: datetime
-  +closed_at: datetime
-  +interval: timedelta  ' = 1h
+class TradeIntent <<value>> {
+  +intent_id: UUID
+  +strategy_id: str
+  +instrument_id: InstrumentId  ' NT OptionSpread / BAG
+  +edge_after_cost_bps: float
+  +liquidity_score: float
+  +regime_tag: RegimeTag
+  +projected_greeks: dict
+  +rationale: dict
 }
-
-class MarketSnapshot <<entity>> {
-  +snapshot_id: UUID
-  +instrument: InstrumentId
-  +ts: datetime
-  +open: Decimal
-  +high: Decimal
-  +low: Decimal
-  +close: Decimal
-  +volume: Decimal
-  +bid: Decimal
-  +ask: Decimal
-  +order_book: dict
-}
-
-class AltDataSignal <<entity>> {
-  +signal_id: UUID
-  +kind: str            ' "sentiment" | "onchain"
-  +instrument: InstrumentId
-  +ts: datetime
-  +score: float         ' normalized -1..1
-  +raw: dict
-}
-
-class IngestedDataset <<aggregate>> {
-  +window: IngestionWindow
-  +snapshots: List<MarketSnapshot>
-  +alt_signals: List<AltDataSignal>
-}
+note bottom of TradeIntent
+  InstrumentId, OptionChainSlice, QuoteTick,
+  OptionGreeks, Order, Portfolio — all NT types.
+  Do NOT duplicate as custom entities.
+end note
 
 ' ====================================================================
-' 2. ANALYSIS — each strategy emits one signal per instrument
+' Risk policy — greek/desk rules (not a calculator)
 ' ====================================================================
-class StrategySignal <<entity>> {
-  +signal_id: UUID
-  +strategy_id: str       ' "A" | "B" | ... | "N"
-  +window_id: UUID
-  +instrument: InstrumentId
-  +option: Side           ' the proposed move
-  +certainty: float       ' 0..1  (the "certainty" field)
-  +risk_pct: float        ' % of book this strategy wants to allocate
-  +expected_return: float
-  +rationale: dict        ' the open "{ ... }" payload
+class RiskPolicy <<value>> {
+  +max_net_delta: float
+  +max_net_gamma: float
+  +max_net_vega: float
+  +max_daily_loss: Decimal
+  +max_concentration_per_strike: float
+  +spot_shock: float = 0.01
+  +vol_shock: float = 0.10
+}
+
+class RiskAssessment <<value>> {
+  +intent_id: UUID
+  +passed: bool
+  +breached_rules: List<str>
+  +projected_greeks: dict
+  +current_greeks: dict
 }
 
 ' ====================================================================
-' 3. RESULTSET — TopN selection across strategies
+' Multi-strategy selection
 ' ====================================================================
 class DiversificationPolicy <<value>> {
   +top_n: int
@@ -101,102 +79,58 @@ class DiversificationPolicy <<value>> {
   +max_gross_risk_pct: float
 }
 
-class ResultSet <<aggregate>> {
-  +result_id: UUID
-  +window_id: UUID
-  +policy: DiversificationPolicy
-  +ranked: List<StrategySignal>   ' sorted by score
-  +selected: List<StrategySignal> ' the TopN
-  +score(s: StrategySignal): float
-}
-
 ' ====================================================================
-' 4. ACTION — decisions, risk, portfolio, orders
-' ====================================================================
-class TradeDecision <<entity>> {
-  +decision_id: UUID
-  +source_signal: StrategySignal
-  +instrument: InstrumentId
-  +side: Side
-  +target_qty: Decimal
-  +actor_kind: ActorKind
-  +approved: bool
-}
-
-class RiskAssessment <<value>> {
-  +decision_id: UUID
-  +within_limits: bool
-  +breached_rules: List<str>
-  +max_allowed_qty: Decimal
-}
-
-class WalletBalance <<entity>> {
-  +venue: Venue
-  +currency: str
-  +free: Decimal
-  +locked: Decimal
-}
-
-class PortfolioState <<aggregate>> {
-  +ts: datetime
-  +positions: dict
-  +balances: List<WalletBalance>
-  +gross_exposure_pct: float
-  +net_exposure_pct: float
-}
-
-class OrderTicket <<entity>> {
-  +client_order_id: UUID
-  +instrument: InstrumentId
-  +side: Side
-  +qty: Decimal
-  +order_type: str
-  +status: str   ' maps to Nautilus OrderStatus
-}
-
-' ====================================================================
-' 5. LEARNING + JOURNAL (cross-cutting)
+' Learning + Journal (cross-cutting)
 ' ====================================================================
 class LearningRecord <<entity>> {
   +record_id: UUID
-  +decision_id: UUID
+  +intent_id: UUID
+  +order_id: UUID          ' NT OrderFilled.client_order_id
   +realized_pnl: Decimal
-  +signal_certainty: float
-  +was_correct: bool
+  +theta_pnl: Decimal
+  +gamma_pnl: Decimal
+  +vega_pnl: Decimal
+  +slippage_bps: float
+  +edge_predicted_bps: float
+  +edge_realized_bps: float
   +features: dict
 }
 
 class JournalEntry <<entity>> {
   +entry_id: UUID
   +ts: datetime
-  +stage: str    ' INGEST|ANALYZE|RESULT|ACT|LEARN
+  +stage: GateStage
   +ref_id: UUID
   +level: str
   +payload: dict
 }
 
 ' ====================================================================
-' Relationships (data flow)
+' Removed types — NT owns (shown for reference only)
 ' ====================================================================
-IngestedDataset *-- IngestionWindow
-IngestedDataset *-- "*" MarketSnapshot
-IngestedDataset *-- "*" AltDataSignal
-MarketSnapshot --> InstrumentId
-AltDataSignal --> InstrumentId
+package "Removed — use NT instead" <<Rectangle>> #LightGray {
+  class "MarketSnapshot" as REMOVED_MS <<removed>>
+  class "IngestedDataset" as REMOVED_ID <<removed>>
+  class "GreekBook" as REMOVED_GB <<removed>>
+  class "OptionsChainSnapshot" as REMOVED_OCS <<removed>>
+  class "OrderTicket" as REMOVED_OT <<removed>>
+  class "PortfolioState" as REMOVED_PS <<removed>>
+  class "StrategySignal" as REMOVED_SS <<removed>>
+}
+note bottom of REMOVED_MS
+  NT replacements:
+  QuoteTick, OptionChainSlice, OptionGreeks
+  GreeksCalculator.portfolio_greeks()
+  NT Order, Portfolio, position events
+  TradeIntent (with structure InstrumentId)
+end note
 
-StrategySignal --> InstrumentId
-StrategySignal ..> IngestedDataset : derived from
-
-ResultSet *-- DiversificationPolicy
-ResultSet o-- "*" StrategySignal
-
-TradeDecision --> StrategySignal : source
-TradeDecision ..> RiskAssessment : evaluated by
-TradeDecision ..> PortfolioState : sized against
-PortfolioState *-- "*" WalletBalance
-TradeDecision --> OrderTicket : emits
-
-LearningRecord ..> TradeDecision
-LearningRecord ..> OrderTicket
-JournalEntry ..> IngestionWindow
+' ====================================================================
+' Relationships
+' ====================================================================
+TradeIntent ..> RiskAssessment : evaluated by
+TradeIntent --> RiskPolicy : constrained by
+LearningRecord ..> TradeIntent : attributes
+JournalEntry ..> TradeIntent : references
+JournalEntry ..> LearningRecord : references
 @enduml

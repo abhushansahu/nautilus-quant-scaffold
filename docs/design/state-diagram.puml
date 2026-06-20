@@ -1,83 +1,71 @@
 @startuml state-diagram
-title trade_baby_trade — State Diagram (one hourly pipeline cycle + trade lifecycle)
+title trade_baby_trade — State Diagram (per-strategy lifecycle + SessionActor)
 
-[*] --> Idle
+[*] --> Flat
 
-state Idle {
-  Idle : waiting for hourly timer
+state Flat {
+  Flat : no open position
+  Flat : reject new entries if SessionActor blackout
 }
 
-Idle --> Ingesting : timer fires (every 1h)
+Flat --> Evaluating : on_option_chain\nor on_quote_tick
 
-state Ingesting {
-  [*] --> FetchingMarket
-  FetchingMarket : pull OHLCV / book\nfrom IB, Binance, Derive
-  FetchingMarket --> FetchingAltData
-  FetchingAltData : sentiment + on-chain
-  FetchingAltData --> [*] : IngestedDataset built
-}
-Ingesting --> Analyzing : dataset ready
-Ingesting --> Idle : no data / source error (journaled)
-
-state Analyzing {
-  Analyzing : fan-out Strategy A..N\nacross workers (GIL-free)
-  Analyzing : each emits\n{option, certainty, risk_pct}
-  Analyzing : selector.offer() folds\nresults as they complete
-}
-Analyzing --> Selecting : join barrier\n(ALL_COMPLETED / timeout)
-Analyzing --> Idle : no signals
-
-state Selecting {
-  Selecting : rank signals
-  Selecting : apply DiversificationPolicy
-  Selecting : pick TopN
-}
-Selecting --> Deciding : ResultSet ready
-Selecting --> Idle : TopN empty
-
-state Deciding {
-  state "Risk check" as Risk
-  state "Portfolio sizing" as Size
-  state "Actor routing" as Route
-  [*] --> Risk
-  Risk --> Size : within_limits
-  Risk --> Rejected : breached limits
-  Size --> Route : qty computed
-  Route --> AwaitingHuman : actor = HUMAN
-  Route --> Executing : actor = AUTOMATION
+state Evaluating {
+  Evaluating : layered gates:\nedge, liquidity, regime,\nsession, greek, ops
+  Evaluating : build TradeIntent +\ntarget OptionSpread InstrumentId
 }
 
-state AwaitingHuman {
-  AwaitingHuman : pending manual approval
-}
-AwaitingHuman --> Executing : approved
-AwaitingHuman --> Rejected : declined / timeout
+Evaluating --> Flat : any gate fails\n(journal reason)
+Evaluating --> PendingEntry : submit_order_list
 
-state Executing {
-  [*] --> Submitted
-  Submitted --> Working : accepted by venue
-  Working --> Filled : fully executed
-  Working --> PartiallyFilled : partial
-  PartiallyFilled --> Filled
-  Working --> Canceled : pulled / expired
-  Submitted --> Denied : venue reject
+state PendingEntry {
+  PendingEntry : awaiting RiskEngine +\nvenue acceptance
 }
 
-Executing --> Learning : terminal fill/cancel
-Rejected --> Learning : record non-action
-Denied --> Learning
+PendingEntry --> Flat : rejected or cancelled
+PendingEntry --> InPosition : fill confirmed
 
-state Learning {
-  Learning : compute realized PnL
-  Learning : compare vs certainty
-  Learning : update models / weights
+state InPosition {
+  InPosition : monitor on_quote_tick\n+ on_option_greeks
+  InPosition : brackets / OrderEmulator active
 }
-Learning --> Idle : cycle complete
 
-' Cross-cutting note
-note right of Idle
-  Every transition writes a
-  JournalEntry (Logging = Journaling).
-  Same lifecycle for spot / option / future.
+InPosition --> Exiting : TP / SL / hedge trigger\n/ time stop
+InPosition --> Flat : SessionActor flatten signal\n(T-30m blackout)
+
+state Exiting {
+  Exiting : submit flatten OrderList
+  Exiting : wait for flat confirmation
+}
+
+Exiting --> Flat : flat confirmed
+
+Flat --> [*] : TradingNode stop
+
+' SessionActor interaction (cross-cutting)
+state "SessionActor" as SA {
+  state "Normal" as SAN
+  state "Blackout" as SAB
+  SAN : new entries allowed
+  SAB : T-30m to close\nnew entries blocked
+  SAN --> SAB : minutes_to_expiry <= 30
+  SAB --> SAN : session reset
+}
+
+note right of Flat
+  During blackout: Flat rejects entries;
+  InPosition may still manage/flatten.
+end note
+
+note right of Evaluating
+  No global batch cycle.
+  Each Strategy owns its own state machine.
+  Default = no trade until all gates pass.
+end note
+
+note bottom of InPosition
+  Post-entry: delta band breach -> hedge;
+  time stop -> flatten.
+  Journal on every transition.
 end note
 @enduml
