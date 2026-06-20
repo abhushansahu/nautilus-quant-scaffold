@@ -30,7 +30,37 @@ _STRATEGY_PATHS: dict[str, tuple[str, str]] = {
         "trade_baby_trade.strategies.gated_skeleton:GatedSkeletonStrategy",
         "trade_baby_trade.strategies.gated_skeleton:GatedSkeletonStrategyConfig",
     ),
+    "reference": (
+        "trade_baby_trade.strategies.reference:ReferenceZeroDteStrategy",
+        "trade_baby_trade.strategies.reference:ReferenceZeroDteStrategyConfig",
+    ),
 }
+
+
+def _gate_strategy_config(config: AppConfig) -> dict:
+    return {
+        "min_edge_after_cost_bps": config.gates.min_edge_after_cost_bps,
+        "min_liquidity_score": config.gates.min_liquidity_score,
+        "blocked_regimes": tuple(config.regime.blocked_regimes),
+        "require_chain_snapshot": config.operational.require_chain_snapshot,
+        "max_underlying_quote_age_secs": config.operational.max_underlying_quote_age_secs,
+        "risk_policy": config.risk.model_dump(mode="json"),
+    }
+
+
+def _reference_strategy_config(config: AppConfig) -> dict:
+    return {
+        **_gate_strategy_config(config),
+        "dry_run": config.dry_run,
+        "max_chain_snapshot_age_secs": config.operational.max_chain_snapshot_age_secs,
+        "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
+        "backtest_plumbing": config.reference.backtest_plumbing,
+        "option_series_id": config.reference.option_series_id,
+        "strike_width": config.reference.strike_width,
+        "order_qty": config.reference.order_qty,
+        "take_profit_pct": config.reference.take_profit_pct,
+        "stop_loss_pct": config.reference.stop_loss_pct,
+    }
 
 
 def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrategyConfig:
@@ -45,16 +75,9 @@ def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrateg
         "underlying": config.strategy.underlying,
     }
     if resolved_class == "gated_skeleton":
-        base_config.update(
-            {
-                "min_edge_after_cost_bps": config.gates.min_edge_after_cost_bps,
-                "min_liquidity_score": config.gates.min_liquidity_score,
-                "blocked_regimes": tuple(config.regime.blocked_regimes),
-                "require_chain_snapshot": config.operational.require_chain_snapshot,
-                "max_underlying_quote_age_secs": config.operational.max_underlying_quote_age_secs,
-                "risk_policy": config.risk.model_dump(mode="json"),
-            }
-        )
+        base_config.update(_gate_strategy_config(config))
+    elif resolved_class == "reference":
+        base_config.update(_reference_strategy_config(config))
     return ImportableStrategyConfig(
         strategy_path=paths[0],
         config_path=paths[1],

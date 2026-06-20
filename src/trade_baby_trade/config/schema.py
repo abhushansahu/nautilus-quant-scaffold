@@ -55,6 +55,15 @@ class InteractiveBrokersConfig(BaseModel):
     client_id: int = 1
 
 
+class ReferenceStrategyConfig(BaseModel):
+    backtest_plumbing: bool = False
+    option_series_id: str | None = None
+    strike_width: int = 5
+    order_qty: int = 1
+    take_profit_pct: float = 0.25
+    stop_loss_pct: float = 0.50
+
+
 class AppConfig(BaseModel):
     """Merged runtime configuration for backtest and live nodes."""
 
@@ -68,6 +77,7 @@ class AppConfig(BaseModel):
     gates: GateThresholdsConfig = Field(default_factory=GateThresholdsConfig)
     operational: OperationalConfig = Field(default_factory=OperationalConfig)
     strategy: StrategyRuntimeConfig = Field(default_factory=StrategyRuntimeConfig)
+    reference: ReferenceStrategyConfig = Field(default_factory=ReferenceStrategyConfig)
     subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
     ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)
 
@@ -76,6 +86,7 @@ class AppConfig(BaseModel):
         if path.is_absolute():
             return path
         base = runs_dir or Path("runs")
-        if self.journal.path == "runs/latest.jsonl":
-            return base / "latest.jsonl"
-        return path
+        relative = path
+        if path.parts and path.parts[0] == "runs":
+            relative = Path(*path.parts[1:]) if len(path.parts) > 1 else Path("latest.jsonl")
+        return base / relative

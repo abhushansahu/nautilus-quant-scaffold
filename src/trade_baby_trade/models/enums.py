@@ -13,6 +13,14 @@ class RegimeTag(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class StrategyState(StrEnum):
+    FLAT = "Flat"
+    EVALUATING = "Evaluating"
+    PENDING_ENTRY = "PendingEntry"
+    IN_POSITION = "InPosition"
+    EXITING = "Exiting"
+
+
 class GateStage(StrEnum):
     EDGE = "EDGE"
     LIQUIDITY = "LIQUIDITY"

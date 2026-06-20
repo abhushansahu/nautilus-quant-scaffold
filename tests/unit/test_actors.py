@@ -50,3 +50,15 @@ def test_regime_chop_on_tight_range() -> None:
         pin_strike_proximity_pct=0.0001,
     )
     assert tag == RegimeTag.CHOP
+
+
+def test_regime_zero_mid_skips_chop_without_error() -> None:
+    tag = compute_regime_tag(
+        0.0,
+        open_price=None,
+        recent_prices=[0.0, 0.0, 0.0, 0.0, 0.0],
+        trend_move_pct=0.005,
+        chop_range_pct=0.002,
+        pin_strike_proximity_pct=0.001,
+    )
+    assert tag == RegimeTag.UNKNOWN

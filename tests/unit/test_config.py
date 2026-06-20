@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from trade_baby_trade.config.loader import load_config
+from trade_baby_trade.config.schema import AppConfig
 
 
 def test_load_paper_spy_profile() -> None:
@@ -33,3 +34,20 @@ def test_layered_risk_overlay(tmp_path: Path) -> None:
     config = load_config(configs_root / "profiles" / "test.yaml")
     assert config.risk.version == "conservative"
     assert config.strategy.underlying == "SPY.NYSE"
+
+
+def test_resolved_journal_path_default() -> None:
+    config = AppConfig()
+    assert config.resolved_journal_path() == Path("runs/latest.jsonl")
+
+
+def test_resolved_journal_path_custom_relative_uses_runs_dir() -> None:
+    config = AppConfig(journal={"path": "custom/journal.jsonl"})
+    base = Path("/tmp/test_runs")
+    assert config.resolved_journal_path(base) == base / "custom/journal.jsonl"
+
+
+def test_resolved_journal_path_strips_runs_prefix() -> None:
+    config = AppConfig(journal={"path": "runs/audit/trades.jsonl"})
+    base = Path("/tmp/test_runs")
+    assert config.resolved_journal_path(base) == base / "audit/trades.jsonl"

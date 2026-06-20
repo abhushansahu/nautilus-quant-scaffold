@@ -27,3 +27,21 @@ def test_unknown_strategy_class_gets_gated_skeleton_config() -> None:
     assert importable.config["require_chain_snapshot"] is False
     assert importable.config["risk_policy"]["version"] == "test-policy"
     assert importable.config["risk_policy"]["max_net_delta"] == 42.0
+
+
+def test_reference_strategy_config_wiring() -> None:
+    config = AppConfig(
+        strategy={
+            "strategy_id": "ref-1",
+            "strategy_class": "reference",
+            "underlying": "SPY.NYSE",
+        },
+        reference={"backtest_plumbing": True, "order_qty": 2},
+        dry_run=True,
+    )
+    importable = _strategy_config(config, Path("/tmp/journal.jsonl"))
+
+    assert "reference" in importable.strategy_path
+    assert importable.config["backtest_plumbing"] is True
+    assert importable.config["order_qty"] == 2
+    assert importable.config["dry_run"] is True

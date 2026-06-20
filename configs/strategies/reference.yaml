@@ -1,4 +1,13 @@
+# Strategy maker defaults — reference 0DTE strategy (profile overrides strategy_class)
+
 strategy:
-  strategy_id: skeleton-001
-  strategy_class: gated_skeleton
+  strategy_id: reference-001
+  strategy_class: reference
   underlying: SPY.NYSE
+
+reference:
+  backtest_plumbing: false
+  strike_width: 5
+  order_qty: 1
+  take_profit_pct: 0.25
+  stop_loss_pct: 0.50

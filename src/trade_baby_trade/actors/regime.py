@@ -28,7 +28,7 @@ def compute_regime_tag(
 ) -> RegimeTag:
     if open_price and abs(mid - open_price) / open_price >= trend_move_pct:
         return RegimeTag.TREND
-    if len(recent_prices) >= 5:
+    if len(recent_prices) >= 5 and mid > 0:
         range_pct = (max(recent_prices) - min(recent_prices)) / mid
         if range_pct <= chop_range_pct:
             return RegimeTag.CHOP

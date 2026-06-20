@@ -76,16 +76,65 @@ def paper(
 def flatten(
     config: Path = typer.Option(..., "--config", "-c", help="Profile YAML path."),
 ) -> None:
-    """Emergency flatten-all — not yet implemented (Phase 3)."""
+    """Request emergency flatten — journals intent; session flatten is automatic when node runs."""
     app_config = load_config(config)
     journal_path = app_config.resolved_journal_path()
     journal = Journal(journal_path)
     journal.record(
         GateStage.LIFECYCLE,
-        payload={"event": "FLATTEN_NOT_IMPLEMENTED"},
+        payload={
+            "event": "FLATTEN_REQUEST",
+            "strategy_id": app_config.strategy.strategy_id,
+            "note": "Live flatten requires running node; SessionActor flatten_signal is automatic",
+        },
+        strategy_id=app_config.strategy.strategy_id,
         level="WARN",
     )
-    typer.echo("flatten: not yet implemented (Phase 3). Journal entry recorded.")
+    typer.echo(
+        f"Flatten request recorded in journal: {journal_path}. "
+        "In-position strategies flatten on SessionActor blackout when the node is running."
+    )
+
+
+@journal_app.command("report")
+def journal_report(
+    path: Path = typer.Option(..., "--path", "-p", help="JSONL journal file."),
+) -> None:
+    """Report gate failures by stage and breached rule — for policy tuning."""
+    entries = Journal.load(path)
+    gate_stages = {
+        GateStage.EDGE,
+        GateStage.LIQUIDITY,
+        GateStage.REGIME,
+        GateStage.SESSION,
+        GateStage.GREEK,
+        GateStage.OPERATIONAL,
+        GateStage.RISK_ENGINE,
+    }
+    by_stage: dict[str, int] = {}
+    by_rule: dict[str, int] = {}
+
+    for entry in entries:
+        if entry.stage not in gate_stages:
+            continue
+        if entry.payload.get("event") not in {"GATE_REJECT", "ORDER_DENIED"}:
+            continue
+        by_stage[entry.stage.value] = by_stage.get(entry.stage.value, 0) + 1
+        for rule in entry.payload.get("breached_rules", []):
+            by_rule[str(rule)] = by_rule.get(str(rule), 0) + 1
+
+    typer.echo(f"Gate rejection report: {path}")
+    typer.echo(f"Total rejections: {sum(by_stage.values())}")
+    if by_stage:
+        typer.echo("\nBy stage:")
+        for stage, count in sorted(by_stage.items()):
+            typer.echo(f"  {stage}: {count}")
+    if by_rule:
+        typer.echo("\nBy breached rule:")
+        for rule, count in sorted(by_rule.items(), key=lambda x: (-x[1], x[0])):
+            typer.echo(f"  {rule}: {count}")
+    if not by_stage and not by_rule:
+        typer.echo("No gate rejections found.")
 
 
 @journal_app.command("summary")

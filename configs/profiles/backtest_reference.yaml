@@ -1,0 +1,29 @@
+# Backtest profile — reference strategy with catalog plumbing mode
+
+trader_id: BACKTEST-REF-001
+
+strategy:
+  strategy_id: reference-001
+  strategy_class: reference
+  underlying: SPY.NYSE
+
+reference:
+  backtest_plumbing: true
+
+operational:
+  require_chain_snapshot: false
+
+gates:
+  min_edge_after_cost_bps: 0.0
+  min_liquidity_score: 0.0
+
+regime:
+  blocked_regimes: []
+
+session:
+  market_close_utc: "21:00"
+
+journal:
+  path: runs/latest.jsonl
+
+dry_run: false
