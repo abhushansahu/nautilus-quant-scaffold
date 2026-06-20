@@ -10,8 +10,9 @@ participant "IngestionService" as Ingest
 participant "DataSource[*]\n(IB/Binance/Derive)" as Src
 participant "AltDataSource[*]\n(sentiment/onchain)" as Alt
 participant "AnalysisEngine" as Analyze
-participant "Strategy A..N" as Strat
-participant "ResultSelector" as Select
+participant "StrategyExecutor\n(ProcessPool, GIL-free)" as Pool
+participant "Strategy A..N\n(N worker procs)" as Strat
+participant "ResultSelector\n(incremental reduce)" as Select
 participant "ActionEngine" as Action
 participant "RiskManager" as Risk
 participant "PortfolioManager" as Port
@@ -31,18 +32,39 @@ Alt --> Ingest : List<AltDataSignal>
 Ingest --> Sched : IngestedDataset
 Sched -> Journal : record(INGEST, window_id)
 
-== Analysis ==
+== Analysis + ResultSet (parallel fan-out / fan-in) ==
 Sched -> Analyze : analyze(dataset)
-loop each Strategy A..N
-  Analyze -> Strat : evaluate(dataset)
-  Strat --> Analyze : StrategySignal{option, certainty, risk_pct, ...}
-end
-Analyze -> Journal : record(ANALYZE, signals)
-Analyze --> Sched : List<StrategySignal>
+note over Analyze, Pool
+  Strategies are independent + CPU-bound →
+  scatter across N workers. Dataset is
+  read-only → shared (fork / shared-memory),
+  not re-pickled per task.
+end note
+Analyze -> Pool : map(strategies, dataset) -> futures[]
 
-== ResultSet (TopN) ==
-Sched -> Select : select(signals)
-Select -> Select : rank() + DiversificationPolicy
+par Strategy A  (worker proc 1)
+  Pool -> Strat : evaluate(dataset)
+  Strat --> Pool : signals_A
+  Pool --> Select : as_completed: offer(signals_A)
+  note right of Select : fold into running\nheap (overlaps compute)
+else Strategy B  (worker proc 2)
+  Pool -> Strat : evaluate(dataset)
+  Strat --> Pool : signals_B
+  Pool --> Select : as_completed: offer(signals_B)
+else Strategy N  (worker proc k)
+  Pool -> Strat : evaluate(dataset)
+  Strat --> Pool : signals_N
+  Pool --> Select : as_completed: offer(signals_N)
+end
+
+== Barrier: join (wait ALL_COMPLETED) ==
+Analyze -> Pool : wait(timeout) — ALL_COMPLETED
+note over Pool, Select
+  Laggards past timeout are cancelled +
+  journaled; selection proceeds degraded.
+end note
+Analyze -> Select : finalize()
+Select -> Select : apply DiversificationPolicy,\npick TopN, deterministic sort
 Select --> Sched : ResultSet{selected: TopN}
 Select -> Journal : record(RESULT, result_id)
 

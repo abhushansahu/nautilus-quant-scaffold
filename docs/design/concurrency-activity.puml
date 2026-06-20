@@ -1,0 +1,60 @@
+@startuml concurrency-activity
+title trade_baby_trade — Strategy Fan-out / Fan-in (scatter → reduce → join barrier)
+
+skinparam conditionStyle inside
+
+start
+:IngestedDataset ready (read-only);
+note right
+  Shared across workers — fork / shared-memory,
+  NOT re-serialized per task.
+end note
+
+:AnalysisEngine.executor.map(strategies, dataset);
+note right: ProcessPoolExecutor (CPU-bound → bypass GIL)
+
+fork
+  partition "worker proc 1" {
+    :Strategy A.evaluate(dataset);
+    :emit signals_A;
+  }
+  :as_completed → selector.offer(signals_A);
+fork again
+  partition "worker proc 2" {
+    :Strategy B.evaluate(dataset);
+    :emit signals_B;
+  }
+  :as_completed → selector.offer(signals_B);
+fork again
+  partition "worker proc k" {
+    :Strategy N.evaluate(dataset);
+    :emit signals_N;
+  }
+  :as_completed → selector.offer(signals_N);
+end fork
+
+note right
+  offer() runs as each future resolves —
+  a streaming fold into a bounded heap that
+  OVERLAPS the still-running strategies.
+end note
+
+:JOIN BARRIER — wait(ALL_COMPLETED, timeout);
+if (any laggard past timeout?) then (yes)
+  :cancel future + journal;
+  :proceed in degraded mode;
+else (no)
+endif
+
+:selector.finalize();
+note right
+  Barrier-time GLOBAL pass:
+  DiversificationPolicy (max_per_instrument,
+  max_gross_risk) needs ALL candidates →
+  cannot pick TopN before the join.
+end note
+:deterministic sort (score, strategy_id);
+note right: reproducible TopN despite\nnon-deterministic completion order
+:ResultSet{ selected: TopN };
+stop
+@enduml

@@ -76,17 +76,55 @@ class StrategyN
 
 class AnalysisEngine {
   +strategies: List<Strategy>
-  +analyze(data: IngestedDataset): List<StrategySignal>
+  +executor: StrategyExecutor
+  +timeout: timedelta
+  +analyze(data, selector): ResultSet
 }
+note right of AnalysisEngine
+  Fan-out: executor.map(strategies, data).
+  Fan-in: as each future completes,
+  selector.offer(signals) (overlaps compute).
+  Barrier: wait ALL_COMPLETED (or timeout)
+  -> selector.finalize().
+end note
+
+' --- Concurrency: scatter strategies across workers ---
+interface StrategyExecutor {
+  +max_workers: int
+  +map(strategies, data): Iterator<Future>
+  +shutdown(): void
+}
+class ProcessPoolStrategyExecutor {
+  ' CPU-bound numeric work → bypass the GIL
+  ' one OS process per worker
+}
+class ThreadPoolStrategyExecutor {
+  ' for I/O-bound / native-GIL-releasing strategies
+}
+note bottom of ProcessPoolStrategyExecutor
+  Python: concurrent.futures.ProcessPoolExecutor
+  + as_completed(); dataset shared read-only.
+  Rust analogue: rayon par_iter() / crossbeam
+  channel fan-in, or tokio for async I/O.
+end note
 
 ' ====================================================================
-' Stage 3 — ResultSet: TopN selection
+' Stage 3 — ResultSet: incremental reduce + TopN selection
 ' ====================================================================
 class ResultSelector {
   +policy: DiversificationPolicy
-  +select(signals: List<StrategySignal>): ResultSet
-  +rank(signals): List<StrategySignal>
+  -_heap: List<StrategySignal>
+  +offer(signals): void
+  +finalize(): ResultSet
 }
+note right of ResultSelector
+  offer():   streaming fold per completed
+             strategy (cheap, bounded heap).
+  finalize(): barrier-time global pass —
+             diversification needs ALL
+             candidates, then deterministic
+             sort for reproducible TopN.
+end note
 
 ' ====================================================================
 ' Stage 4 — Action: risk + portfolio gating + actor routing
@@ -146,6 +184,8 @@ Strategy <|-- StrategyC
 Strategy <|-- StrategyN
 ActionHandler <|.. HumanApprovalHandler
 ActionHandler <|.. AutomationHandler
+StrategyExecutor <|.. ProcessPoolStrategyExecutor
+StrategyExecutor <|.. ThreadPoolStrategyExecutor
 
 ' ====================================================================
 ' Composition / collaboration
@@ -162,6 +202,8 @@ IngestionService o-- "*" DataSource
 IngestionService o-- "*" AltDataSource
 
 AnalysisEngine o-- "*" Strategy
+AnalysisEngine *-- StrategyExecutor
+AnalysisEngine --> ResultSelector : offer() / finalize()
 
 ActionEngine --> RiskManager
 ActionEngine --> PortfolioManager

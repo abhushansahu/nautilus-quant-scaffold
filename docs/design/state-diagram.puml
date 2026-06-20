@@ -20,10 +20,11 @@ Ingesting --> Analyzing : dataset ready
 Ingesting --> Idle : no data / source error (journaled)
 
 state Analyzing {
-  Analyzing : run Strategy A..N\nin parallel
+  Analyzing : fan-out Strategy A..N\nacross workers (GIL-free)
   Analyzing : each emits\n{option, certainty, risk_pct}
+  Analyzing : selector.offer() folds\nresults as they complete
 }
-Analyzing --> Selecting : signals collected
+Analyzing --> Selecting : join barrier\n(ALL_COMPLETED / timeout)
 Analyzing --> Idle : no signals
 
 state Selecting {
