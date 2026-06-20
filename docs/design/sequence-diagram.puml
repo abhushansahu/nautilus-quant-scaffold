@@ -1,0 +1,78 @@
+@startuml sequence-diagram
+title trade_baby_trade — Sequence Diagram (complete hourly flow)
+
+skinparam sequenceMessageAlign center
+autonumber
+
+actor "Clock\n(hourly)" as Clock
+participant "IngestionScheduler" as Sched
+participant "IngestionService" as Ingest
+participant "DataSource[*]\n(IB/Binance/Derive)" as Src
+participant "AltDataSource[*]\n(sentiment/onchain)" as Alt
+participant "AnalysisEngine" as Analyze
+participant "Strategy A..N" as Strat
+participant "ResultSelector" as Select
+participant "ActionEngine" as Action
+participant "RiskManager" as Risk
+participant "PortfolioManager" as Port
+participant "ActorClassifier" as Actor
+participant "Executor" as Exec
+participant "nautilus_trader\nExecutionEngine" as NT
+participant "LearningModule" as Learn
+participant "Journal" as Journal
+
+== Ingestion (every 1h) ==
+Clock -> Sched : on_timer()
+Sched -> Ingest : collect(window)
+Ingest -> Src : fetch(window)
+Src --> Ingest : List<MarketSnapshot>
+Ingest -> Alt : fetch(window)
+Alt --> Ingest : List<AltDataSignal>
+Ingest --> Sched : IngestedDataset
+Sched -> Journal : record(INGEST, window_id)
+
+== Analysis ==
+Sched -> Analyze : analyze(dataset)
+loop each Strategy A..N
+  Analyze -> Strat : evaluate(dataset)
+  Strat --> Analyze : StrategySignal{option, certainty, risk_pct, ...}
+end
+Analyze -> Journal : record(ANALYZE, signals)
+Analyze --> Sched : List<StrategySignal>
+
+== ResultSet (TopN) ==
+Sched -> Select : select(signals)
+Select -> Select : rank() + DiversificationPolicy
+Select --> Sched : ResultSet{selected: TopN}
+Select -> Journal : record(RESULT, result_id)
+
+== Action (risk + portfolio + actor) ==
+Sched -> Action : decide(resultSet)
+loop each selected signal
+  Action -> Port : state() / size(signal, balance)
+  Port --> Action : PortfolioState + target_qty
+  Action -> Risk : assess(decision, portfolio)
+  Risk --> Action : RiskAssessment
+  alt within limits
+    Action -> Actor : classify(decision)
+    Actor --> Action : ActorKind
+    alt actor = AUTOMATION
+      Action -> Exec : submit(ticket)
+      Exec -> NT : submit_order(order)
+      NT --> Exec : OrderStatus
+    else actor = HUMAN
+      Action -> Journal : record(ACT, "awaiting human approval")
+      note right of Action : blocks until manual approve/decline
+    end
+  else breached limits
+    Action -> Journal : record(ACT, "rejected: " + rules)
+  end
+end
+
+== Learning (feedback) ==
+NT --> Learn : OrderFilled / PositionChanged
+Learn -> Learn : realized PnL vs certainty
+Learn -> Learn : update_models()
+Learn -> Journal : record(LEARN, LearningRecord)
+Learn --> Sched : cycle complete
+@enduml
