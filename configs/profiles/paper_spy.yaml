@@ -4,10 +4,13 @@ trader_id: PAPER-SPY-001
 
 strategy:
   strategy_id: skeleton-001
-  strategy_class: skeleton
+  strategy_class: gated_skeleton
   underlying: SPY.NYSE
 
 journal:
   path: runs/latest.jsonl
+
+operational:
+  require_chain_snapshot: false
 
 dry_run: false

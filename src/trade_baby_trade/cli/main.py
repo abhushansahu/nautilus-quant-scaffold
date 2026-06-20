@@ -92,25 +92,51 @@ def flatten(
 def journal_summary(
     path: Path = typer.Option(..., "--path", "-p", help="JSONL journal file."),
 ) -> None:
-    """Summarize journal entries by stage and show recent events."""
+    """Summarize journal entries by stage, gate rejections, and recent events."""
     entries = Journal.load(path)
     stage_counts: dict[str, int] = {}
+    gate_rejections: dict[str, int] = {}
+    strategies: set[str] = set()
+
+    gate_stages = {
+        GateStage.EDGE,
+        GateStage.LIQUIDITY,
+        GateStage.REGIME,
+        GateStage.SESSION,
+        GateStage.GREEK,
+        GateStage.OPERATIONAL,
+    }
+
     for entry in entries:
         stage_counts[entry.stage.value] = stage_counts.get(entry.stage.value, 0) + 1
+        if entry.strategy_id:
+            strategies.add(entry.strategy_id)
+        if entry.stage in gate_stages and entry.payload.get("event") == "GATE_REJECT":
+            gate_rejections[entry.stage.value] = gate_rejections.get(entry.stage.value, 0) + 1
 
     typer.echo(f"Journal: {path}")
     typer.echo(f"Total entries: {len(entries)}")
+    if strategies:
+        typer.echo(f"Strategies: {', '.join(sorted(strategies))}")
     typer.echo("Stage counts:")
     for stage, count in sorted(stage_counts.items()):
         typer.echo(f"  {stage}: {count}")
 
+    if gate_rejections:
+        typer.echo("\nGate rejections:")
+        for stage, count in sorted(gate_rejections.items()):
+            typer.echo(f"  {stage}: {count}")
+
     typer.echo("\nLast 10 entries:")
     for entry in entries[-10:]:
         event = entry.payload.get("event", "")
+        breached = entry.payload.get("breached_rules")
+        extra = f" rules={breached}" if breached else ""
         typer.echo(
             f"  [{entry.ts.isoformat()}] {entry.stage.value}"
             f"{f'/{event}' if event else ''}"
             f"{f' strategy={entry.strategy_id}' if entry.strategy_id else ''}"
+            f"{extra}"
         )
 
 

@@ -21,6 +21,24 @@ class SessionConfig(BaseModel):
     market_close_utc: str = "21:00"
 
 
+class RegimeConfig(BaseModel):
+    trend_move_pct: float = 0.005
+    chop_range_pct: float = 0.002
+    pin_strike_proximity_pct: float = 0.001
+    blocked_regimes: list[str] = Field(default_factory=lambda: ["PIN_RISK"])
+
+
+class GateThresholdsConfig(BaseModel):
+    min_edge_after_cost_bps: float = 5.0
+    min_liquidity_score: float = 0.5
+
+
+class OperationalConfig(BaseModel):
+    max_underlying_quote_age_secs: float = 30.0
+    max_chain_snapshot_age_secs: float = 90.0
+    require_chain_snapshot: bool = True
+
+
 class StrategyRuntimeConfig(BaseModel):
     strategy_id: str = "skeleton-001"
     strategy_class: str = "skeleton"
@@ -46,6 +64,9 @@ class AppConfig(BaseModel):
     journal: JournalConfig = Field(default_factory=JournalConfig)
     risk: RiskPolicy = Field(default_factory=RiskPolicy)
     session: SessionConfig = Field(default_factory=SessionConfig)
+    regime: RegimeConfig = Field(default_factory=RegimeConfig)
+    gates: GateThresholdsConfig = Field(default_factory=GateThresholdsConfig)
+    operational: OperationalConfig = Field(default_factory=OperationalConfig)
     strategy: StrategyRuntimeConfig = Field(default_factory=StrategyRuntimeConfig)
     subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
     ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)

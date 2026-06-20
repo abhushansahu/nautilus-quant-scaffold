@@ -10,7 +10,7 @@ from nautilus_trader.backtest.config import (
     BacktestVenueConfig,
 )
 from nautilus_trader.backtest.node import BacktestNode
-from nautilus_trader.config import ImportableStrategyConfig, LoggingConfig
+from nautilus_trader.config import ImportableActorConfig, ImportableStrategyConfig, LoggingConfig
 from nautilus_trader.live.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import QuoteTick
@@ -21,17 +21,69 @@ from trade_baby_trade.config.schema import AppConfig
 from trade_baby_trade.journal.service import Journal
 from trade_baby_trade.models.enums import GateStage
 
+_STRATEGY_PATHS: dict[str, tuple[str, str]] = {
+    "skeleton": (
+        "trade_baby_trade.strategies.skeleton:SkeletonZeroDteStrategy",
+        "trade_baby_trade.strategies.skeleton:SkeletonZeroDteStrategyConfig",
+    ),
+    "gated_skeleton": (
+        "trade_baby_trade.strategies.gated_skeleton:GatedSkeletonStrategy",
+        "trade_baby_trade.strategies.gated_skeleton:GatedSkeletonStrategyConfig",
+    ),
+}
 
-def _skeleton_strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrategyConfig:
-    return ImportableStrategyConfig(
-        strategy_path="trade_baby_trade.strategies.skeleton:SkeletonZeroDteStrategy",
-        config_path="trade_baby_trade.strategies.skeleton:SkeletonZeroDteStrategyConfig",
-        config={
-            "strategy_id": config.strategy.strategy_id,
-            "journal_path": str(journal_path),
-            "underlying": config.strategy.underlying,
-        },
+
+def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrategyConfig:
+    strategy_class = config.strategy.strategy_class
+    resolved_class = (
+        strategy_class if strategy_class in _STRATEGY_PATHS else "gated_skeleton"
     )
+    paths = _STRATEGY_PATHS[resolved_class]
+    base_config: dict = {
+        "strategy_id": config.strategy.strategy_id,
+        "journal_path": str(journal_path),
+        "underlying": config.strategy.underlying,
+    }
+    if resolved_class == "gated_skeleton":
+        base_config.update(
+            {
+                "min_edge_after_cost_bps": config.gates.min_edge_after_cost_bps,
+                "min_liquidity_score": config.gates.min_liquidity_score,
+                "blocked_regimes": tuple(config.regime.blocked_regimes),
+                "require_chain_snapshot": config.operational.require_chain_snapshot,
+                "max_underlying_quote_age_secs": config.operational.max_underlying_quote_age_secs,
+                "risk_policy": config.risk.model_dump(mode="json"),
+            }
+        )
+    return ImportableStrategyConfig(
+        strategy_path=paths[0],
+        config_path=paths[1],
+        config=base_config,
+    )
+
+
+def _actor_configs(config: AppConfig) -> list[ImportableActorConfig]:
+    return [
+        ImportableActorConfig(
+            actor_path="trade_baby_trade.actors.session:SessionActor",
+            config_path="trade_baby_trade.actors.session:SessionActorConfig",
+            config={
+                "blackout_minutes_before_close": config.session.blackout_minutes_before_close,
+                "market_close_utc": config.session.market_close_utc,
+                "underlying": config.strategy.underlying,
+            },
+        ),
+        ImportableActorConfig(
+            actor_path="trade_baby_trade.actors.regime:RegimeActor",
+            config_path="trade_baby_trade.actors.regime:RegimeActorConfig",
+            config={
+                "underlying": config.strategy.underlying,
+                "trend_move_pct": config.regime.trend_move_pct,
+                "chop_range_pct": config.regime.chop_range_pct,
+                "pin_strike_proximity_pct": config.regime.pin_strike_proximity_pct,
+            },
+        ),
+    ]
 
 
 def _catalog_time_bounds(catalog_path: Path, instrument_id: InstrumentId) -> tuple[int, int]:
@@ -44,7 +96,7 @@ def _catalog_time_bounds(catalog_path: Path, instrument_id: InstrumentId) -> tup
 
 
 def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> BacktestNode:
-    """Build a BacktestNode wired with the skeleton strategy and catalog data."""
+    """Build a BacktestNode wired with actors, strategy, and catalog data."""
     catalog = Path(catalog_path)
     instrument_id = InstrumentId.from_str(config.strategy.underlying)
     start_time, end_time = _catalog_time_bounds(catalog, instrument_id)
@@ -52,7 +104,8 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
 
     engine_config = BacktestEngineConfig(
         trader_id=config.trader_id,
-        strategies=[_skeleton_strategy_config(config, journal_path)],
+        actors=_actor_configs(config),
+        strategies=[_strategy_config(config, journal_path)],
         logging=LoggingConfig(bypass_logging=True),
     )
     venue_config = BacktestVenueConfig(
@@ -79,12 +132,13 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
 
 
 def build_trading_node(config: AppConfig) -> TradingNode:
-    """Build a TradingNode with skeleton strategy and optional IB adapter."""
+    """Build a TradingNode with actors, strategy, and optional IB adapter."""
     journal_path = config.resolved_journal_path()
     node_config = TradingNodeConfig(
         trader_id=config.trader_id,
         logging=LoggingConfig(log_level="ERROR"),
-        strategies=[_skeleton_strategy_config(config, journal_path)],
+        actors=_actor_configs(config),
+        strategies=[_strategy_config(config, journal_path)],
     )
 
     if _ib_adapter_available() and not config.dry_run:
