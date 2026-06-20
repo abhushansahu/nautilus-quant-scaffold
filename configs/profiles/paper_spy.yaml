@@ -1,0 +1,13 @@
+# Default operator profile — SPY paper/backtest
+
+trader_id: PAPER-SPY-001
+
+strategy:
+  strategy_id: skeleton-001
+  strategy_class: skeleton
+  underlying: SPY.NYSE
+
+journal:
+  path: runs/latest.jsonl
+
+dry_run: false

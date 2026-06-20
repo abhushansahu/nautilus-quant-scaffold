@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic import BaseModel, Field
+
+from trade_baby_trade.models.risk import RiskPolicy
+
+
+class JournalConfig(BaseModel):
+    path: str = "runs/latest.jsonl"
+
+
+class VenueConfig(BaseModel):
+    name: str = "NYSE"
+    adapter: str = "IB"
+
+
+class SessionConfig(BaseModel):
+    blackout_minutes_before_close: int = 30
+    market_close_utc: str = "21:00"
+
+
+class StrategyRuntimeConfig(BaseModel):
+    strategy_id: str = "skeleton-001"
+    strategy_class: str = "skeleton"
+    underlying: str = "SPY.NYSE"
+
+
+class SubscriptionConfig(BaseModel):
+    chain_snapshot_interval_ms: int = 60_000
+
+
+class InteractiveBrokersConfig(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 7497
+    client_id: int = 1
+
+
+class AppConfig(BaseModel):
+    """Merged runtime configuration for backtest and live nodes."""
+
+    trader_id: str = "TRADER-001"
+    dry_run: bool = False
+    venue: VenueConfig = Field(default_factory=VenueConfig)
+    journal: JournalConfig = Field(default_factory=JournalConfig)
+    risk: RiskPolicy = Field(default_factory=RiskPolicy)
+    session: SessionConfig = Field(default_factory=SessionConfig)
+    strategy: StrategyRuntimeConfig = Field(default_factory=StrategyRuntimeConfig)
+    subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
+    ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)
+
+    def resolved_journal_path(self, runs_dir: Path | None = None) -> Path:
+        path = Path(self.journal.path)
+        if path.is_absolute():
+            return path
+        base = runs_dir or Path("runs")
+        if self.journal.path == "runs/latest.jsonl":
+            return base / "latest.jsonl"
+        return path

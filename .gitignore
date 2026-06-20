@@ -25,6 +25,9 @@ htmlcov/
 .DS_Store
 .idea/
 
+# Run artifacts
+runs/
+
 # Local agent tooling
 headroom_memory.db
 .cursorrules

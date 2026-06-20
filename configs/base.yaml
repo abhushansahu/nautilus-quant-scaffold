@@ -1,0 +1,16 @@
+trader_id: BACKTESTER-001
+
+venue:
+  name: NYSE
+  adapter: IB
+
+journal:
+  path: runs/latest.jsonl
+
+subscriptions:
+  chain_snapshot_interval_ms: 60000
+
+ib:
+  host: "127.0.0.1"
+  port: 7497
+  client_id: 1

@@ -8,7 +8,7 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -22,4 +22,13 @@ jobs:
         run: uv sync --group dev
 
       - name: Smoke import
-        run: uv run python -c "import nautilus_trader; print('ok')"
+        run: uv run python -c "import nautilus_trader; import trade_baby_trade; print('ok')"
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Unit tests
+        run: uv run pytest tests/unit/
+
+      - name: Backtest integration smoke
+        run: uv run pytest tests/integration/test_backtest_smoke.py -v

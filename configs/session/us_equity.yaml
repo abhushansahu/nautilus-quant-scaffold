@@ -1,0 +1,3 @@
+session:
+  blackout_minutes_before_close: 30
+  market_close_utc: "21:00"

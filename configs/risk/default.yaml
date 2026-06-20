@@ -1,0 +1,8 @@
+risk:
+  max_net_delta: 100.0
+  max_net_gamma: 50.0
+  max_net_vega: 10000.0
+  max_concentration_per_strike: 0.2
+  spot_shock: 0.01
+  vol_shock: 0.10
+  version: default

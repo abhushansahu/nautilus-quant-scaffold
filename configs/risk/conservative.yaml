@@ -1,0 +1,9 @@
+risk:
+  max_net_delta: 50.0
+  max_net_gamma: 25.0
+  max_net_vega: 5000.0
+  max_daily_loss: "500.00"
+  max_concentration_per_strike: 0.1
+  spot_shock: 0.005
+  vol_shock: 0.05
+  version: conservative

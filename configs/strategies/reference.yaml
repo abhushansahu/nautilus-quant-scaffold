@@ -1,0 +1,4 @@
+strategy:
+  strategy_id: skeleton-001
+  strategy_class: skeleton
+  underlying: SPY.NYSE
