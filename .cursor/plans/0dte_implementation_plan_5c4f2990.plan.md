@@ -22,13 +22,13 @@ todos:
     status: completed
   - id: session-actor-gate
     content: SessionActor + session gate; backtest proof via journal (blackout blocks entry)
-    status: pending
+    status: completed
   - id: regime-actor-gate
     content: RegimeActor + regime gate unit tests
-    status: pending
+    status: completed
   - id: gate-evaluator-pure
     content: Pure evaluate_pre_greek + RiskPolicy.check; operational gate checklist; unit tests per stage
-    status: pending
+    status: completed
   - id: base-strategy-fsm
     content: BaseZeroDteStrategy FSM; Strategy orchestrates NT greeks then calls pure checks
     status: pending
@@ -618,3 +618,42 @@ Catalog fixture: committed slice or documented download — **Phase 1**, not Pha
 6. Extend skeleton or add `GatedSkeletonStrategy` to build dummy `TradeIntent` and journal gate pass/fail.
 7. Expand `journal summary` to report counts by `GateStage` including gate rejections.
 8. **Vertical slice proof for Phase 2:** backtest JSONL shows `SESSION` gate rejection during T-30m blackout window.
+
+---
+
+## Phase 2 handoff (completed 2026-06-21)
+
+**Vertical slice proof:** backtest with `session.market_close_utc: "14:45"` (catalog ticks at 14:30–14:35 UTC) → JSONL contains `SESSION` / `GATE_REJECT` / `session_blackout`.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| ADR | `docs/implementation/gate-boundary.md` | Accepted; operational checklist + actor msgbus pattern |
+| Gates | `gates/context.py`, `gates/evaluator.py` | Pure `evaluate_pre_greek`, `check_risk_policy` wrapper |
+| Config | `config/schema.py` | `RegimeConfig`, `GateThresholdsConfig`, `OperationalConfig` |
+| SessionActor | `actors/session.py` | Blackout T-30m; pure helpers unit-tested |
+| RegimeActor | `actors/regime.py` | Rule-based CHOP/TREND/PIN_RISK/UNKNOWN |
+| Actor transport | `actors/data_types.py` | MessageBus topics + dataclass snapshots |
+| Strategy | `strategies/gated_skeleton.py` | Dummy intent → pre-greek gates → journal |
+| Factory | `node/factory.py` | Actors + config-driven `gated_skeleton` strategy |
+| CLI | `cli/main.py` | `journal summary` gate rejection counts |
+| Tests | `tests/unit/test_gates.py`, `test_actors.py`, `integration/test_gate_backtest.py` | 31 tests green |
+
+### Known constraints for Phase 3
+
+1. **Actor context via MessageBus topics** — not NT `customdataclass`/`publish_data` (inner payload must be `Data` subclass). Topics: `data.session.phase`, `data.regime.tag`.
+2. **SessionActor publishes on quote tick** — strategies must subscribe in `on_start` before first tick; fail-closed until first `SessionPhaseSnapshot` received.
+3. **`GatedSkeletonStrategy` evaluates once** on first quote tick after session snapshot — Phase 3 `BaseZeroDteStrategy` evaluates on every `on_option_chain` / tick per FSM.
+4. **`require_chain_snapshot: false`** in `paper_spy.yaml` for skeleton — reference strategy must set real chain freshness from `OptionChainSlice` ts.
+5. **Dual journal paths unchanged** — factory `NODE_*` journal + strategy journal both append to same JSONL path.
+
+### Phase 3 start checklist
+
+1. Implement `strategies/base.py` — per-strategy FSM (`Flat` → `Evaluating` → `PendingEntry` → `InPosition` → `Exiting`).
+2. Gate orchestration in base: `evaluate_pre_greek` → NT `portfolio_greeks()` → `check_risk_policy` → submit (or journal + stop on `--dry-run`).
+3. Implement `ReferenceZeroDteStrategy` — `subscribe_quote_ticks`, `subscribe_option_chain`, build `TradeIntent`, `OrderList` submit.
+4. Config-driven strategy selection: `strategy_class: reference` maps in factory `_STRATEGY_PATHS`.
+5. On `on_order_filled`: journal `FILL` + realized PnL from NT `Portfolio`.
+6. Integration test: full journal trail gates → order → fill → PnL against catalog fixture.
+7. Implement or stub `flatten` CLI command for session-driven flatten.
