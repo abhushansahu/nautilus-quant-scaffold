@@ -1,0 +1,82 @@
+@startuml state-diagram
+title trade_baby_trade — State Diagram (one hourly pipeline cycle + trade lifecycle)
+
+[*] --> Idle
+
+state Idle {
+  Idle : waiting for hourly timer
+}
+
+Idle --> Ingesting : timer fires (every 1h)
+
+state Ingesting {
+  [*] --> FetchingMarket
+  FetchingMarket : pull OHLCV / book\nfrom IB, Binance, Derive
+  FetchingMarket --> FetchingAltData
+  FetchingAltData : sentiment + on-chain
+  FetchingAltData --> [*] : IngestedDataset built
+}
+Ingesting --> Analyzing : dataset ready
+Ingesting --> Idle : no data / source error (journaled)
+
+state Analyzing {
+  Analyzing : run Strategy A..N\nin parallel
+  Analyzing : each emits\n{option, certainty, risk_pct}
+}
+Analyzing --> Selecting : signals collected
+Analyzing --> Idle : no signals
+
+state Selecting {
+  Selecting : rank signals
+  Selecting : apply DiversificationPolicy
+  Selecting : pick TopN
+}
+Selecting --> Deciding : ResultSet ready
+Selecting --> Idle : TopN empty
+
+state Deciding {
+  state "Risk check" as Risk
+  state "Portfolio sizing" as Size
+  state "Actor routing" as Route
+  [*] --> Risk
+  Risk --> Size : within_limits
+  Risk --> Rejected : breached limits
+  Size --> Route : qty computed
+  Route --> AwaitingHuman : actor = HUMAN
+  Route --> Executing : actor = AUTOMATION
+}
+
+state AwaitingHuman {
+  AwaitingHuman : pending manual approval
+}
+AwaitingHuman --> Executing : approved
+AwaitingHuman --> Rejected : declined / timeout
+
+state Executing {
+  [*] --> Submitted
+  Submitted --> Working : accepted by venue
+  Working --> Filled : fully executed
+  Working --> PartiallyFilled : partial
+  PartiallyFilled --> Filled
+  Working --> Canceled : pulled / expired
+  Submitted --> Denied : venue reject
+}
+
+Executing --> Learning : terminal fill/cancel
+Rejected --> Learning : record non-action
+Denied --> Learning
+
+state Learning {
+  Learning : compute realized PnL
+  Learning : compare vs certainty
+  Learning : update models / weights
+}
+Learning --> Idle : cycle complete
+
+' Cross-cutting note
+note right of Idle
+  Every transition writes a
+  JournalEntry (Logging = Journaling).
+  Same lifecycle for spot / option / future.
+end note
+@enduml

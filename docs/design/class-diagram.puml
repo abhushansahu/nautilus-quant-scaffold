@@ -1,0 +1,184 @@
+@startuml class-diagram
+title trade_baby_trade — Class Diagram (extension layer over NautilusTrader)
+
+hide empty members
+skinparam classAttributeIconSize 0
+
+' ====================================================================
+' NautilusTrader engine boundary (we DO NOT reimplement these)
+' ====================================================================
+package "nautilus_trader (engine)" <<Frame>> {
+  class TradingNode
+  class DataEngine
+  class RiskEngine
+  class ExecutionEngine
+  class Portfolio
+  class "Strategy (nt)" as NTStrategy
+}
+
+' ====================================================================
+' Stage 0 — Orchestration / scheduling
+' ====================================================================
+class Pipeline {
+  +node: TradingNode
+  +run_cycle(now: datetime): void
+}
+note right of Pipeline
+  Drives one full pass:
+  ingest -> analyze -> select
+  -> act -> learn.
+  Asset-class agnostic
+  (spot / option / future).
+end note
+
+class IngestionScheduler {
+  +interval: timedelta = 1h
+  +on_timer(): void
+  +trigger(): IngestedDataset
+}
+
+' ====================================================================
+' Stage 1 — Ingestion: data sources
+' ====================================================================
+abstract class DataSource {
+  +venue: Venue
+  +fetch(window: IngestionWindow): List<MarketSnapshot>
+}
+class InteractiveBrokerSource
+class BinanceSource
+class DeriveSource
+
+abstract class AltDataSource {
+  +kind: str
+  +fetch(window: IngestionWindow): List<AltDataSignal>
+}
+class SentimentSource
+class OnChainSource
+
+class IngestionService {
+  +market_sources: List<DataSource>
+  +alt_sources: List<AltDataSource>
+  +collect(window): IngestedDataset
+}
+
+' ====================================================================
+' Stage 2 — Analysis: pluggable strategies
+' ====================================================================
+abstract class Strategy {
+  +strategy_id: str
+  +supports(asset_class): bool
+  +evaluate(data: IngestedDataset): List<StrategySignal>
+}
+class StrategyA
+class StrategyB
+class StrategyC
+class StrategyN
+
+class AnalysisEngine {
+  +strategies: List<Strategy>
+  +analyze(data: IngestedDataset): List<StrategySignal>
+}
+
+' ====================================================================
+' Stage 3 — ResultSet: TopN selection
+' ====================================================================
+class ResultSelector {
+  +policy: DiversificationPolicy
+  +select(signals: List<StrategySignal>): ResultSet
+  +rank(signals): List<StrategySignal>
+}
+
+' ====================================================================
+' Stage 4 — Action: risk + portfolio gating + actor routing
+' ====================================================================
+class ActionEngine {
+  +decide(result: ResultSet): List<TradeDecision>
+}
+class RiskManager {
+  +assess(d: TradeDecision, p: PortfolioState): RiskAssessment
+}
+class PortfolioManager {
+  +state(): PortfolioState
+  +size(signal, balance): Decimal
+}
+class ActorClassifier {
+  +classify(d: TradeDecision): ActorKind
+}
+note bottom of ActorClassifier
+  "Actor category, classifier
+  for wallet/balance":
+  routes small/auto-safe trades
+  to AUTOMATION, else HUMAN.
+end note
+
+interface ActionHandler {
+  +handle(d: TradeDecision): OrderTicket
+}
+class HumanApprovalHandler
+class AutomationHandler
+
+class Executor {
+  +submit(ticket: OrderTicket): void
+}
+
+' ====================================================================
+' Stage 5 — Learning + Stage X — Journal (cross-cutting)
+' ====================================================================
+class LearningModule {
+  +observe(decision, fill): LearningRecord
+  +update_models(): void
+}
+class Journal {
+  +record(stage, ref_id, payload): JournalEntry
+}
+
+' ====================================================================
+' Inheritance
+' ====================================================================
+DataSource <|-- InteractiveBrokerSource
+DataSource <|-- BinanceSource
+DataSource <|-- DeriveSource
+AltDataSource <|-- SentimentSource
+AltDataSource <|-- OnChainSource
+Strategy <|-- StrategyA
+Strategy <|-- StrategyB
+Strategy <|-- StrategyC
+Strategy <|-- StrategyN
+ActionHandler <|.. HumanApprovalHandler
+ActionHandler <|.. AutomationHandler
+
+' ====================================================================
+' Composition / collaboration
+' ====================================================================
+Pipeline *-- IngestionScheduler
+Pipeline *-- AnalysisEngine
+Pipeline *-- ResultSelector
+Pipeline *-- ActionEngine
+Pipeline *-- LearningModule
+Pipeline o-- Journal
+
+IngestionScheduler --> IngestionService
+IngestionService o-- "*" DataSource
+IngestionService o-- "*" AltDataSource
+
+AnalysisEngine o-- "*" Strategy
+
+ActionEngine --> RiskManager
+ActionEngine --> PortfolioManager
+ActionEngine --> ActorClassifier
+ActionEngine --> ActionHandler
+HumanApprovalHandler --> Executor
+AutomationHandler --> Executor
+
+' Engine bindings (extension -> NautilusTrader)
+Pipeline ..> TradingNode
+PortfolioManager ..> Portfolio
+RiskManager ..> RiskEngine
+Executor ..> ExecutionEngine
+IngestionService ..> DataEngine
+Strategy ..> NTStrategy : may wrap
+
+LearningModule ..> Journal
+ActionEngine ..> Journal
+AnalysisEngine ..> Journal
+@enduml
