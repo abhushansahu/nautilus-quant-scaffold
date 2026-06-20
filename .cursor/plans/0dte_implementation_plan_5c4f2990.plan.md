@@ -31,13 +31,13 @@ todos:
     status: completed
   - id: base-strategy-fsm
     content: BaseZeroDteStrategy FSM; Strategy orchestrates NT greeks then calls pure checks
-    status: pending
+    status: completed
   - id: reference-strategy
     content: ReferenceZeroDteStrategy — subscriptions, intent, OrderList submit, post-entry management
-    status: pending
+    status: completed
   - id: fill-pnl-journal
     content: Phase 3 minimal fill journal — NT Portfolio realized PnL on OrderFilled (before full attribution)
-    status: pending
+    status: completed
   - id: integration-tests
     content: BacktestNode e2e with catalog fixture; TradingNode smoke (--dry-run, no live orders in CI)
     status: completed
@@ -657,3 +657,40 @@ Catalog fixture: committed slice or documented download — **Phase 1**, not Pha
 5. On `on_order_filled`: journal `FILL` + realized PnL from NT `Portfolio`.
 6. Integration test: full journal trail gates → order → fill → PnL against catalog fixture.
 7. Implement or stub `flatten` CLI command for session-driven flatten.
+
+---
+
+## Phase 3 handoff (completed 2026-06-21)
+
+**Vertical slice proof:** `configs/profiles/backtest_reference.yaml` + catalog fixture → JSONL contains `GREEK_PASSED` → `ORDER_SUBMIT` → `FILL` → `PNL`; `--dry-run` journals `DRY_RUN_INTENT` without submit.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| FSM base | `strategies/base.py` | `Flat` → `Evaluating` → `PendingEntry` → `InPosition` → `Exiting`; gate orchestration per ADR |
+| Reference | `strategies/reference.py` | `build_intent`, subscriptions, entry/exit submit; `backtest_plumbing` for catalog-only backtest |
+| Context | `strategies/context.py` | `ChainEvaluationContext` — normalizes live slice vs synthetic backtest inputs |
+| Enums | `models/enums.py` | `StrategyState` FSM states |
+| Config | `config/schema.py`, `configs/strategies/reference.yaml`, `configs/profiles/backtest_reference.yaml` | `ReferenceStrategyConfig`; factory maps `strategy_class: reference` |
+| Factory | `node/factory.py` | Per-strategy config wiring (`gated_skeleton` vs `reference` fields) |
+| CLI | `cli/main.py` | `journal report` (rejections by stage/rule); `flatten` records `FLATTEN_REQUEST` |
+| Tests | `tests/integration/test_reference_backtest.py`, `tests/unit/test_reference_strategy.py` | 40 tests green |
+
+### Known constraints for Phase 4
+
+1. **`backtest_plumbing: true`** submits underlying SPY market orders — not option spreads. Live path uses `option_series_id` + `subscribe_option_chain`; spread `OrderList` submit deferred until IB catalog/instrument load proven.
+2. **`OptionChainSlice`** import via `nautilus_trader.model.data.nautilus_pyo3` — not re-exported from `model.data` directly.
+3. **Dual journal paths unchanged** — factory `NODE_*` + strategy journal append to same JSONL path.
+4. **Flatten CLI** journals request only; in-position flatten is automatic via `SessionActor.flatten_signal` when node runs.
+5. **PnL journal** uses `Portfolio.realized_pnl` + `unrealized_pnl` — zero on entry fill; full theta/gamma/vega decomposition deferred to Phase 4 `LearningModule`.
+6. **Single strategy only** — no `SelectorActor`; full capital to one strategy per config.
+
+### Phase 4 start checklist
+
+1. Write `docs/implementation/learning-attribution.md` — rule-based PnL decomposition method before coding `LearningModule`.
+2. Implement `actors/selector.py` — MessageBus join barrier, `DiversificationPolicy` TopN caps.
+3. Implement `approval/classifier.py` + `approval/handlers.py` — human path before automation.
+4. Implement `learning/module.py` — subscribe `OrderFilled`, attribute theta/gamma/vega, compare `edge_predicted_bps` vs realized.
+5. Optional: refactor injected `Journal` to `JournalActor` when multi-strategy fan-in complicates call sites.
+6. **Vertical slice proof for Phase 4:** two strategies + SelectorActor TopN; `LearningRecord` on fills; human approval stub before automation.
