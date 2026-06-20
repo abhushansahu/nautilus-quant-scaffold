@@ -6,6 +6,5 @@ alwaysApply: true
 
 - Python 3.14+, managed with `uv` (`pyproject.toml` + `uv lock`).
 - NautilusTrader is the trading engine — do not re-implement matching, order books, or event loops.
-- Extension code goes in `src/`; configs in `config/`. Build incrementally on request.
 - No secrets in source control. Use `.env.example` to document env var names; values come from the environment.
 - Add tests when adding behavior, not before.

@@ -19,11 +19,6 @@ htmlcov/
 .env.*
 !.env.example
 
-# Data and run artifacts
-data/*
-!data/.gitkeep
-experiments/results/
-artifacts/
 
 # Notebooks / editors / OS
 .ipynb_checkpoints/

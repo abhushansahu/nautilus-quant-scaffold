@@ -19,20 +19,7 @@ uv run python -c "import nautilus_trader; print('ok')"
 
 ## What's here
 
-Empty placeholders only. No strategies, configs, or CLI yet — add them one at a time when ready.
-
 | Path | Purpose |
 | --- | --- |
-| `src/` | Extension code (strategies, adapters) |
-| `config/` | Environment and strategy configs |
-| `tests/` | Tests alongside features |
-| `data/` | Local market data and run state (gitignored) |
+| `docs/design/` | Design documents, puml, and model |
 
-## Archived scaffold
-
-The full multi-package scaffold (backtester, live trading, models, suites, etc.) is preserved on
-branch `archive/full-scaffold`. Cherry-pick from there when you want a specific piece back.
-
-## Next
-
-You decide what to add first.
