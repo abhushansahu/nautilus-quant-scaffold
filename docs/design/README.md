@@ -27,6 +27,29 @@ Journaling = logging, cross-cutting on every stage.
 | `class-diagram.puml` | Class (behavior) | Services/strategies and how they bind to NautilusTrader |
 | `state-diagram.puml` | State | One hourly cycle + order lifecycle |
 | `sequence-diagram.puml` | Sequence | End-to-end message flow for one cycle |
+| `concurrency-activity.puml` | Activity (fork/join) | Strategy fan-out → incremental reduce → join barrier |
+
+## Concurrency model (Analysis stage)
+
+Strategies A..N are **independent and CPU-bound**, so the Analysis stage is a
+**scatter → reduce → join-barrier** (map-reduce):
+
+1. **Scatter** — `AnalysisEngine` submits each `Strategy.evaluate(dataset)` to a
+   `StrategyExecutor`. The default is a `ProcessPoolExecutor` (one OS process per worker)
+   to **bypass the GIL** for numeric work; the read-only `IngestedDataset` is shared, not
+   re-pickled per task. (I/O-bound strategies can use a thread pool instead.)
+2. **Incremental reduce** — `ResultSelector.offer()` folds each strategy's signals into a
+   bounded heap **via `as_completed`, while other strategies are still running** — this is
+   the "ResultSet does work meanwhile" overlap.
+3. **Join barrier** — `wait(ALL_COMPLETED, timeout)`. Laggards past the timeout are
+   cancelled + journaled (degraded mode). The barrier is *required*: TopN-with-diversification
+   is a **global** constraint, so `finalize()` can't pick the top-N until every candidate is in.
+   A final **deterministic sort** keeps results reproducible despite non-deterministic
+   completion order (important for backtests).
+
+> **Rust analogue:** `rayon`'s `par_iter().map(evaluate)` for the scatter with a `crossbeam`
+> channel for the streaming fan-in, joining on the parallel iterator; or `tokio` tasks +
+> `JoinSet` if the strategies are async I/O-bound.
 
 ## Render
 
