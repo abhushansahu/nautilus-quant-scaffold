@@ -23,7 +23,7 @@ adapter registry — see [implementation plan](../../.cursor/plans/0dte_implemen
 | Layer | Status | Notes |
 | --- | --- | --- |
 | Gates, journal, FSM, actors | Delivered | No venue-specific logic |
-| Factory / adapters | IB-only today | Phase 4: `node/adapters/` registry |
+| Factory / adapters | Venue registry delivered | `node/adapters/` — Deribit primary, IB secondary |
 | Reference strategy spreads | `backtest_plumbing` on SPY | Phase 5: Deribit combo `OrderList` |
 | Fees + attribution | Stubbed | Phase 6: `MakerTakerFeeModel` (Deribit) |
 

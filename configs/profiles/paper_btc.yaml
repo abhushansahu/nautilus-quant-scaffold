@@ -1,0 +1,30 @@
+# Default operator profile — Deribit BTC 0DTE (crypto-first)
+
+trader_id: PAPER-BTC-001
+
+venue:
+  name: DERIBIT
+  adapter: DERIBIT
+  base_currency: USD
+  account_type: MARGIN
+
+strategy:
+  strategy_id: reference-001
+  strategy_class: gated_skeleton
+  underlying: BTC-PERPETUAL.DERIBIT
+
+reference:
+  option_series_id: BTC
+
+deribit:
+  api_key_env: DERIBIT_API_KEY
+  api_secret_env: DERIBIT_API_SECRET
+  testnet: true
+
+journal:
+  path: runs/latest.jsonl
+
+operational:
+  require_chain_snapshot: false
+
+dry_run: true

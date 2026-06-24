@@ -5,7 +5,7 @@ description = "Personal trading project built on NautilusTrader."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "nautilus-trader[ib]>=1.229.0a0",
+    "nautilus-trader[deribit,ib]>=1.229.0a0",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "typer>=0.26.7",

@@ -1,0 +1,9 @@
+# Crypto 0DTE session — daily UTC expiry blackout (BTC options ~08:00 UTC)
+
+session:
+  expiry_mode: daily_utc
+  blackout_minutes_before_close: 30
+  market_close_utc: "08:00"
+
+subscriptions:
+  chain_snapshot_interval_ms: 30000

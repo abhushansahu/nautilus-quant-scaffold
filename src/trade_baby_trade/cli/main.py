@@ -38,7 +38,7 @@ def paper(
     config: Path = typer.Option(..., "--config", "-c", help="Profile YAML path."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Build node without live orders."),
 ) -> None:
-    """Build (and optionally run) a TradingNode against IB paper."""
+    """Build (and optionally run) a TradingNode against the configured venue adapter."""
     app_config = load_config(config)
     if dry_run:
         app_config = app_config.model_copy(update={"dry_run": True})

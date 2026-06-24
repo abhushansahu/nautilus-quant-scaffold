@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from trade_baby_trade.models.enums import SessionExpiryMode, VenueAdapter
 from trade_baby_trade.models.risk import RiskPolicy
 
 
@@ -13,12 +14,21 @@ class JournalConfig(BaseModel):
 
 class VenueConfig(BaseModel):
     name: str = "NYSE"
-    adapter: str = "IB"
+    adapter: VenueAdapter = VenueAdapter.IB
+    base_currency: str = "USD"
+    account_type: str = "MARGIN"
+
+
+class DeribitConfig(BaseModel):
+    api_key_env: str = "DERIBIT_API_KEY"
+    api_secret_env: str = "DERIBIT_API_SECRET"
+    testnet: bool = False
 
 
 class SessionConfig(BaseModel):
     blackout_minutes_before_close: int = 30
     market_close_utc: str = "21:00"
+    expiry_mode: SessionExpiryMode = SessionExpiryMode.US_EQUITY_CLOSE
 
 
 class RegimeConfig(BaseModel):
@@ -80,6 +90,7 @@ class AppConfig(BaseModel):
     reference: ReferenceStrategyConfig = Field(default_factory=ReferenceStrategyConfig)
     subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
     ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)
+    deribit: DeribitConfig = Field(default_factory=DeribitConfig)
 
     def resolved_journal_path(self, runs_dir: Path | None = None) -> Path:
         path = Path(self.journal.path)

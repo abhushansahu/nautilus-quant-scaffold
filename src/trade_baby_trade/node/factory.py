@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from nautilus_trader.backtest.config import (
@@ -20,6 +19,11 @@ from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 from trade_baby_trade.config.schema import AppConfig
 from trade_baby_trade.journal.service import Journal
 from trade_baby_trade.models.enums import GateStage
+from trade_baby_trade.node.adapters.registry import (
+    apply_venue_client_wiring,
+    build_venue_client_wiring,
+    register_venue_factories,
+)
 
 _STRATEGY_PATHS: dict[str, tuple[str, str]] = {
     "skeleton": (
@@ -65,9 +69,7 @@ def _reference_strategy_config(config: AppConfig) -> dict:
 
 def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrategyConfig:
     strategy_class = config.strategy.strategy_class
-    resolved_class = (
-        strategy_class if strategy_class in _STRATEGY_PATHS else "gated_skeleton"
-    )
+    resolved_class = strategy_class if strategy_class in _STRATEGY_PATHS else "gated_skeleton"
     paths = _STRATEGY_PATHS[resolved_class]
     base_config: dict = {
         "strategy_id": config.strategy.strategy_id,
@@ -118,6 +120,17 @@ def _catalog_time_bounds(catalog_path: Path, instrument_id: InstrumentId) -> tup
     return ticks[0].ts_event, ticks[-1].ts_event
 
 
+def _backtest_venue_config(config: AppConfig) -> BacktestVenueConfig:
+    currency = config.venue.base_currency
+    return BacktestVenueConfig(
+        name=config.venue.name,
+        oms_type="HEDGING",
+        account_type=config.venue.account_type,
+        base_currency=currency,
+        starting_balances=[f"100000 {currency}"],
+    )
+
+
 def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> BacktestNode:
     """Build a BacktestNode wired with actors, strategy, and catalog data."""
     catalog = Path(catalog_path)
@@ -131,13 +144,6 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
         strategies=[_strategy_config(config, journal_path)],
         logging=LoggingConfig(bypass_logging=True),
     )
-    venue_config = BacktestVenueConfig(
-        name=config.venue.name,
-        oms_type="HEDGING",
-        account_type="MARGIN",
-        base_currency="USD",
-        starting_balances=["100000 USD"],
-    )
     data_config = BacktestDataConfig(
         catalog_path=str(catalog),
         catalog_fs_protocol="file",
@@ -148,14 +154,14 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
     )
     run_config = BacktestRunConfig(
         engine=engine_config,
-        venues=[venue_config],
+        venues=[_backtest_venue_config(config)],
         data=[data_config],
     )
     return BacktestNode(configs=[run_config])
 
 
 def build_trading_node(config: AppConfig) -> TradingNode:
-    """Build a TradingNode with actors, strategy, and optional IB adapter."""
+    """Build a TradingNode with actors, strategy, and venue adapter wiring."""
     journal_path = config.resolved_journal_path()
     node_config = TradingNodeConfig(
         trader_id=config.trader_id,
@@ -164,55 +170,13 @@ def build_trading_node(config: AppConfig) -> TradingNode:
         strategies=[_strategy_config(config, journal_path)],
     )
 
-    if _ib_adapter_available() and not config.dry_run:
-        _attach_ib_clients(node_config, config)
+    wiring = build_venue_client_wiring(config, dry_run=config.dry_run)
+    node_config = apply_venue_client_wiring(node_config, wiring)
 
-    return TradingNode(config=node_config)
+    node = TradingNode(config=node_config)
+    register_venue_factories(node, wiring)
 
-
-def _ib_adapter_available() -> bool:
-    try:
-        import ibapi  # noqa: F401
-    except ImportError:
-        return False
-    return bool(os.environ.get("IB_HOST"))
-
-
-def _attach_ib_clients(node_config: TradingNodeConfig, config: AppConfig) -> None:
-    from nautilus_trader.adapters.interactive_brokers.common import IB
-    from nautilus_trader.adapters.interactive_brokers.config import (
-        InteractiveBrokersDataClientConfig,
-        InteractiveBrokersExecClientConfig,
-        InteractiveBrokersInstrumentProviderConfig,
-    )
-    from nautilus_trader.adapters.interactive_brokers.factories import (
-        InteractiveBrokersLiveDataClientFactory,
-        InteractiveBrokersLiveExecClientFactory,
-    )
-
-    ib_config = {
-        "host": config.ib.host,
-        "port": config.ib.port,
-        "client_id": config.ib.client_id,
-    }
-    instrument_provider = InteractiveBrokersInstrumentProviderConfig(
-        load_all=False,
-        load_ids=frozenset(),
-    )
-    node_config.data_clients = {
-        IB: InteractiveBrokersDataClientConfig(
-            ib_gateway=ib_config,
-            instrument_provider=instrument_provider,
-        ),
-    }
-    node_config.exec_clients = {
-        IB: InteractiveBrokersExecClientConfig(
-            ib_gateway=ib_config,
-            instrument_provider=instrument_provider,
-        ),
-    }
-    node_config.data_client_factories = [InteractiveBrokersLiveDataClientFactory]
-    node_config.exec_client_factories = [InteractiveBrokersLiveExecClientFactory]
+    return node
 
 
 def run_backtest(config: AppConfig, catalog_path: Path | str) -> Journal:
@@ -226,6 +190,7 @@ def run_backtest(config: AppConfig, catalog_path: Path | str) -> Journal:
             "node": "BacktestNode",
             "trader_id": config.trader_id,
             "risk_policy_version": config.risk.version,
+            "venue_adapter": config.venue.adapter.value,
         },
     )
     node = build_backtest_node(config, catalog_path)

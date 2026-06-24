@@ -1,8 +1,11 @@
 trader_id: BACKTESTER-001
 
 venue:
+  # adapter: DERIBIT (crypto-first) | IB (equity secondary)
   name: NYSE
   adapter: IB
+  base_currency: USD
+  account_type: MARGIN
 
 journal:
   path: runs/latest.jsonl

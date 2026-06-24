@@ -21,6 +21,16 @@ class StrategyState(StrEnum):
     EXITING = "Exiting"
 
 
+class VenueAdapter(StrEnum):
+    DERIBIT = "DERIBIT"
+    IB = "IB"
+
+
+class SessionExpiryMode(StrEnum):
+    DAILY_UTC = "daily_utc"
+    US_EQUITY_CLOSE = "us_equity_close"
+
+
 class GateStage(StrEnum):
     EDGE = "EDGE"
     LIQUIDITY = "LIQUIDITY"

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from trade_baby_trade.config.loader import load_config
 from trade_baby_trade.config.schema import AppConfig
+from trade_baby_trade.models.enums import VenueAdapter
 
 
 def test_load_paper_spy_profile() -> None:
@@ -11,7 +12,23 @@ def test_load_paper_spy_profile() -> None:
     assert config.strategy.underlying == "SPY.NYSE"
     assert config.strategy.strategy_id == "skeleton-001"
     assert config.session.blackout_minutes_before_close == 30
+    assert config.session.expiry_mode.value == "us_equity_close"
+    assert config.venue.adapter is VenueAdapter.IB
     assert config.risk.version == "default"
+
+
+def test_load_paper_btc_profile() -> None:
+    config = load_config("configs/profiles/paper_btc.yaml")
+    assert config.venue.adapter is VenueAdapter.DERIBIT
+    assert config.venue.name == "DERIBIT"
+    assert config.venue.base_currency == "USD"
+    assert config.strategy.underlying == "BTC-PERPETUAL.DERIBIT"
+    assert config.reference.option_series_id == "BTC"
+    assert config.session.expiry_mode.value == "daily_utc"
+    assert config.session.market_close_utc == "08:00"
+    assert config.subscriptions.chain_snapshot_interval_ms == 30_000
+    assert config.deribit.testnet is True
+    assert config.dry_run is True
 
 
 def test_layered_risk_overlay(tmp_path: Path) -> None:
