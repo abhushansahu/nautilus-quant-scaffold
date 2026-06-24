@@ -1,7 +1,7 @@
 # Design — trade_baby_trade
 
 NT-first architecture for **institutional-grade 0DTE / near-expiry options trading** as a thin
-extension layer on [NautilusTrader](https://nautilustrader.io/) 1.228+.
+extension layer on [NautilusTrader](https://nautilustrader.io/) 1.229+ (develop channel).
 
 NautilusTrader owns the event loop, subscriptions, instruments, greeks, orders, fills, portfolio,
 and backtest replay. This layer owns only what NT lacks: multi-strategy allocation, greek
@@ -27,7 +27,7 @@ and backtest replay. This layer owns only what NT lacks: multi-strategy allocati
 - Custom mirrors of NT types (`GreekBook`, `OptionsChainSnapshot`, `MarketSnapshot` for live options)
 - Sub-second market making or HFT-style quoting
 - Full stochastic vol engines, dealer-gamma/OI pin models, or ML calibration (deferred)
-- A Derive/on-chain adapter (not in NT 1.228)
+- A Derive/on-chain adapter (not in NT 1.229)
 
 ## Architecture (NT-first)
 
@@ -111,7 +111,7 @@ NT `RiskEngine` is always on. Custom greek policy is an additional gate, not a r
 | **Interactive Brokers** | Yes | **Primary** — SPX/SPY equity 0DTE | Chain build, BAG spreads, local greeks via calculator; no venue-streamed greeks |
 | **Deribit / OKX / Bybit** | Yes | Secondary — crypto options 0DTE | Venue-streamed `OptionGreeks`, IV orders, combos |
 | **Binance** | Yes | Spot/perp hedging only | Not US equity options |
-| **Derive** | In beta (1.228) | Not supported in v2 | Drop until adapter is stable |
+| **Derive** | In beta (1.229) | Not supported in v2 | Drop until adapter is stable |
 
 ## Data fidelity tiers
 

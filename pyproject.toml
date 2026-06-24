@@ -5,7 +5,7 @@ description = "Personal trading project built on NautilusTrader."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "nautilus-trader[ib]==1.228.0",
+    "nautilus-trader[ib]>=1.229.0a0",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "typer>=0.26.7",
@@ -19,6 +19,17 @@ dev = [
     "pytest>=8.4.0",
     "ruff>=0.12.0",
 ]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.uv.sources]
+nautilus-trader = { index = "nautech" }
+
+[[tool.uv.index]]
+name = "nautech"
+url = "https://packages.nautechsystems.io/simple"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]
