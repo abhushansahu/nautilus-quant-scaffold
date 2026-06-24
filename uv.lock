@@ -501,7 +501,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "nautilus-trader", extras = ["ib"], specifier = ">=1.229.0a0", index = "https://packages.nautechsystems.io/simple" },
+    { name = "nautilus-trader", extras = ["deribit", "ib"], specifier = ">=1.229.0a0", index = "https://packages.nautechsystems.io/simple" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "typer", specifier = ">=0.26.7" },

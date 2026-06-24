@@ -337,14 +337,15 @@ class BaseZeroDteStrategy(Strategy):
 
     def _build_gate_context(self, context: ChainEvaluationContext) -> GateContext:
         now_ns = self.clock.timestamp_ns()
-        quote_fresh = self._last_quote_ts is not None and (
-            now_ns - self._last_quote_ts
-        ) / 1_000_000_000 <= self.config.max_underlying_quote_age_secs
+        quote_fresh = (
+            self._last_quote_ts is not None
+            and (now_ns - self._last_quote_ts) / 1_000_000_000
+            <= self.config.max_underlying_quote_age_secs
+        )
         chain_fresh = self._last_chain_ts is not None and (
             now_ns - self._last_chain_ts
         ) / 1_000_000_000 <= (
-            self.config.max_chain_snapshot_age_secs
-            + self.config.chain_snapshot_interval_ms / 1000
+            self.config.max_chain_snapshot_age_secs + self.config.chain_snapshot_interval_ms / 1000
         )
         if not self.config.require_chain_snapshot:
             chain_fresh = True

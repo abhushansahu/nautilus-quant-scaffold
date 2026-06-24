@@ -43,10 +43,10 @@ todos:
     status: completed
   - id: phase4-venue-foundation
     content: Venue adapter registry in factory; DeribitConfig + crypto session YAML; paper_btc profile; update design docs venue priority
-    status: pending
+    status: completed
   - id: phase5-deribit-path
     content: Deribit live wiring; crypto 0DTE spread OrderList; venue-streamed greeks; Deribit catalog fixture + backtest integration
-    status: pending
+    status: completed
   - id: phase6-costs-attribution
     content: Deribit FeeModel + real edge_after_cost_bps; learning-attribution.md; LearningModule with commission/slippage
     status: pending
@@ -57,7 +57,7 @@ todos:
     content: IB adapter as second venue profile; BAG spread selector; ib_options fee config; paper_spy as secondary profile
     status: pending
   - id: phase9-optional
-    content: IngestionPlannerActor, offline ProcessPool research, Binance perp hedge, OKX/Bybit; Derive out of scope
+    content: StreamingFeatherWriter live catalog capture; IngestionPlannerActor; offline ProcessPool research; Binance perp hedge; OKX/Bybit; Derive out of scope
     status: pending
 isProject: false
 ---
@@ -107,7 +107,7 @@ flowchart LR
   P6[P6: fees + attribution]
   P7[P7: multi-strategy + approval]
   P8[P8: IB secondary]
-  P9[P9: optional research/hedge]
+  P9[P9: streaming capture + research]
   P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9
 ```
 
@@ -229,8 +229,9 @@ src/trade_baby_trade/
   node/
     factory.py      # build_trading_node / build_backtest_node
     adapters/       # Phase 4 — venue adapter registry (deribit.py, ib.py)
+    streaming.py    # Phase 9 — StreamingFeatherWriter attach + convert hook
   cli/
-    main.py         # typer: backtest, paper, journal
+    main.py         # typer: backtest, paper, journal, catalog convert (Phase 9)
 tests/
   unit/             # gates, models, risk policy, actors, adapters
   integration/      # BacktestNode smoke; TradingNode config smoke
@@ -253,6 +254,8 @@ tests/
     paper_btc.yaml          # default operator profile (Phase 4 — primary)
     backtest_btc.yaml       # Deribit catalog backtest (Phase 5)
     paper_spy.yaml          # IB equity profile (Phase 8 — secondary)
+  streaming/
+    default.yaml            # Phase 9 — feather paths, include_types, rotation (off by default)
 docs/
   implementation/
     gate-boundary.md        # ADR: pure vs NT greek gate split
@@ -514,7 +517,9 @@ Manual (Phase 3): SPY catalog backtest only. Deribit testnet paper → Phase 5. 
 
 ---
 
-## Phase 4 — Venue foundation (structural pivot)
+## Phase 4 — Venue foundation (structural pivot) ✓
+
+**Status: completed 2026-06-24.**
 
 **Goal:** Introduce venue adapter registry and crypto-first config profiles **without changing gate/FSM/journal behavior**. SPY backtest profile continues to work; new default operator path is Deribit-oriented.
 
@@ -561,7 +566,9 @@ Retain `paper_spy.yaml` unchanged for now (becomes secondary in Phase 8).
 
 ---
 
-## Phase 5 — Deribit 0DTE live path + backtest catalog
+## Phase 5 — Deribit 0DTE live path + backtest catalog ✓
+
+**Status: completed 2026-06-24.**
 
 **Goal:** Complete what Phase 3 deferred (real option spread execution) on **Deribit first** — the canonical production path. Finish spread `OrderList` submit, crypto session calendar, and Deribit catalog backtest.
 
@@ -713,11 +720,67 @@ Add `strategies/selectors/ib.py`:
 
 | Component | Trigger | Notes |
 | --- | --- | --- |
+| **Live catalog capture** | Operator wants live→backtest replay or COLD backfill | NT `StreamingFeatherWriter` → `ParquetDataCatalog.convert_stream_to_data`; see **9.1** |
 | `IngestionPlannerActor` | Subscription API cost measured | Emits `SubscriptionSpec` plan only; no fetch logic |
-| Offline ProcessPool research | Factor/walk-forward need | [`concurrency-activity.puml`](docs/design/concurrency-activity.puml) — never on order path |
+| Offline ProcessPool research | Factor/walk-forward need | Consumes Parquet catalogs (committed fixtures + operator-captured runs); [`concurrency-activity.puml`](docs/design/concurrency-activity.puml) — never on order path |
 | OKX / Bybit crypto options | After Deribit path proven | Same adapter pattern as Deribit; venue-streamed greeks |
 | Binance perp hedge | Delta hedge on non-Deribit underlyings | Spot/perp only — not options venue |
 | Derive on-chain adapter | NT adapter stable | Explicitly out of scope until then |
+
+### 9.1 Live catalog capture (`StreamingFeatherWriter`)
+
+**Goal:** Close the COLD-tier “catalog backfill” gap from [`ingestion-tiers.md`](docs/design/ingestion-tiers.md) using NT-native persistence — **not** a custom ingestion pipeline and **not** a replacement for the JSONL `Journal`.
+
+Phases 1–5 deliver **synthetic committed** Parquet fixtures (`tests/fixtures/catalog*`) for deterministic CI. Phase 9 adds an **optional operator path** to capture real paper/live sessions into replayable catalogs.
+
+**Vertical slice proof:** `trade-baby-trade paper --config configs/profiles/paper_btc.yaml --streaming` (Deribit testnet) → stop → `trade-baby-trade catalog convert --run-id <id>` → `trade-baby-trade backtest --catalog data/catalogs/<id>` replays the same strategy with journal trail.
+
+#### Responsibilities (do not conflate)
+
+| Layer | Owner | Mechanism | Purpose |
+| --- | --- | --- | --- |
+| Decision audit | Custom `Journal` | JSONL | Gates, intents, `ref_id`, operator grep — unchanged |
+| Market replay | NT `StreamingFeatherWriter` | Feather → Parquet | `QuoteTick`, `OptionGreeks`, chain data the strategy subscribed to |
+| Attribution | `LearningModule` (Phase 6) | `OrderFilled` subscription | `LearningRecord` — does not require streaming |
+
+#### NT types (do not reimplement)
+
+- `nautilus_trader.persistence.config.StreamingConfig` — path, `include_types`, rotation mode
+- `nautilus_trader.persistence.writer.StreamingFeatherWriter` — `subscribe()` on message bus; rotating `.feather` files
+- `ParquetDataCatalog.convert_stream_to_data()` — feather → permanent Parquet for `BacktestNode`
+
+#### Work items
+
+| Work item | Module / path | Notes |
+| --- | --- | --- |
+| Config schema | `config/schema.py` → `StreamingConfig` | `enabled` (default `false`), `stream_path`, `permanent_catalog_path`, `include_types`, rotation |
+| Config overlay | `configs/streaming/default.yaml` | Align `include_types` with ingestion tiers (HOT/WARM only — not full bus) |
+| Factory wiring | `node/streaming.py`, `build_trading_node()` | When `streaming.enabled`: create writer, `writer.subscribe()`, flush on node stop |
+| Convert CLI | `cli/main.py` → `catalog convert` | `ParquetDataCatalog.convert_stream_to_data()`; optional time-range trim |
+| Operator data dir | `data/streaming/` (gitignored), `data/catalogs/` | Never commit live captures; CI stays on `tests/fixtures/` |
+| Design note | `docs/implementation/live-catalog-capture.md` | Feather vs JSONL journal; two-track catalog strategy (CI synthetic vs operator capture) |
+
+#### What to stream (0DTE defaults)
+
+| NT type | Ingestion tier | Stream? |
+| --- | --- | --- |
+| `QuoteTick` (underlying/perp + option legs) | HOT / WARM | Yes — replay structure selection and hedge context |
+| `OptionGreeks` | HOT (open legs) | Yes — matches Deribit `BacktestDataConfig` path in factory |
+| `OrderFilled`, `OrderSubmitted` | — | Optional — execution replay; journal already covers decisions |
+| Custom actor data (`RegimeTag`, etc.) | — | Only if published on bus and needed for replay fidelity |
+
+#### Two-track catalog strategy
+
+1. **CI / regression:** committed synthetic slices in `tests/fixtures/catalog_deribit/` (Phase 5) — unchanged, no network, deterministic.
+2. **Operator / research:** capture paper sessions via `StreamingFeatherWriter`; trim windows into `data/catalogs/` or promote slices into fixtures manually when needed.
+
+Offline ProcessPool research (Phase 9 table) reads from `data/catalogs/` and committed fixtures — never from the live event loop.
+
+#### Non-goals
+
+- Do not replace JSONL journal or duplicate gate audit in Feather files.
+- Do not enable streaming in CI or commit operator-captured Parquet to git.
+- Do not build custom Feather/Parquet writers — use NT writer + `convert_stream_to_data` only.
 
 ---
 
@@ -733,13 +796,13 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 
 ## Persona deliverables by phase
 
-| Persona | Phases 1–3 ✓ | Phase 4 | Phase 5 | Phase 6 | Phase 7 | Phase 8 |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Coder** | Gates, FSM, reference plumbing | Venue adapter registry, crypto config | Deribit spread selector, catalog fixture | `FeeModel`, `LearningModule`, edge cost math | Selector, approval | IB selector + fees |
-| **Trader** | `backtest`/`paper`, JSONL audit | `paper_btc` dry-run smoke | Deribit testnet paper | Cost-aware journal attribution | Human approval path | IB paper manual |
-| **Strategy maker** | `build_intent` hooks, config-driven strategy | Crypto session + subscription profile | Real combo `OrderList` on Deribit | Real `edge_after_cost_bps` from quotes + fees | Multi-strategy configs | IB BAG spreads |
-| **Policy maker** | `configs/risk/*.yaml`, gate journal | Crypto expiry blackout config | Deribit WARM/HOT tiers | `configs/fees/deribit_options.yaml` | TopN diversification caps | `configs/fees/ib_options.yaml` |
-| **PnL checker** | Fill + realized PnL journal | — | Spread fill trail on Deribit catalog | Full `LearningRecord` incl. commission | Multi-strategy attribution | IB fee-aligned backtest |
+| Persona | Phases 1–3 ✓ | Phase 4 | Phase 5 | Phase 6 | Phase 7 | Phase 8 | Phase 9 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **Coder** | Gates, FSM, reference plumbing | Venue adapter registry, crypto config | Deribit spread selector, catalog fixture | `FeeModel`, `LearningModule`, edge cost math | Selector, approval | IB selector + fees | `StreamingFeatherWriter`, `catalog convert` |
+| **Trader** | `backtest`/`paper`, JSONL audit | `paper_btc` dry-run smoke | Deribit testnet paper | Cost-aware journal attribution | Human approval path | IB paper manual | `paper --streaming`, replay captured runs |
+| **Strategy maker** | `build_intent` hooks, config-driven strategy | Crypto session + subscription profile | Real combo `OrderList` on Deribit | Real `edge_after_cost_bps` from quotes + fees | Multi-strategy configs | IB BAG spreads | Tune gates against real captured chain data |
+| **Policy maker** | `configs/risk/*.yaml`, gate journal | Crypto expiry blackout config | Deribit WARM/HOT tiers | `configs/fees/deribit_options.yaml` | TopN diversification caps | `configs/fees/ib_options.yaml` | `configs/streaming/default.yaml` tier alignment |
+| **PnL checker** | Fill + realized PnL journal | — | Spread fill trail on Deribit catalog | Full `LearningRecord` incl. commission | Multi-strategy attribution | IB fee-aligned backtest | Live vs replay parity checks on captured catalogs |
 
 ---
 
@@ -755,6 +818,7 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 | Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phases 1–4+ |
 | Manual | `trade-baby-trade paper` against Deribit testnet | After Phase 5 |
 | Manual | `trade-baby-trade paper` against IB paper | After Phase 8 |
+| Manual | `paper --streaming` → `catalog convert` → `backtest` replay on captured run | Phase 9 |
 
 Per [`.cursor/rules/agent.mdc`](.cursor/rules/agent.mdc): add tests when adding behavior, not upfront scaffolding tests.
 
@@ -782,7 +846,7 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 | **6** | `MakerTakerFeeModel` on Deribit backtest; real `edge_after_cost_bps`; `LearningRecord` with commission on fills |
 | **7** | Two strategies + SelectorActor TopN; human approval stub before automation |
 | **8** | IB BAG spread path on `paper_spy.yaml`; `FixedFeeModel` for IB backtest; IB fee-aligned edge gate |
-| **9** | Optional components behind feature flags |
+| **9** | Optional components behind feature flags; operator can capture paper session → Parquet catalog → backtest replay via `StreamingFeatherWriter` |
 
 ---
 
