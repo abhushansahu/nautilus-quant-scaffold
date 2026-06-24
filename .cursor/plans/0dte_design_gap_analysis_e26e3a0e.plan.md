@@ -171,7 +171,8 @@ These gaps from the institutional analysis remain valid. v2 addresses each **ins
 | **Layered trade gates** — edge, liquidity, greek, session, ops | Strategy evaluates gates before `submit_order()`; see below                |
 | **Greek-aware risk** — delta/gamma/vega limits, scenarios      | `GreeksCalculator.portfolio_greeks()` + custom `RiskPolicy`                |
 | **Post-entry management** — hedge, scale, flatten              | Strategy `on_quote_tick` / `on_option_greeks` + brackets + `OrderEmulator` |
-| **PnL attribution** — theta/gamma/vega/slippage                | Custom `LearningModule` on NT fill events                                  |
+| **PnL attribution** — theta/gamma/vega/slippage, commissions   | Custom `LearningModule` on NT fill events; `OrderFilled.commission`        |
+| **Trading fees / commissions** — realistic backtest PnL        | NT `FeeModel` on `BacktestVenueConfig`; live via `OrderFilled.commission`  |
 | **Tiered data fidelity** — cost vs freshness tradeoff          | HOT/WARM/COLD mapped to NT subscriptions; optional `IngestionPlannerActor` |
 | **Multi-strategy portfolio** — TopN, diversification           | Multiple NT Strategies + optional `SelectorActor`                          |
 | **Human vs automation routing**                                | `ActorClassifier` + approval workflow                                      |
@@ -216,7 +217,7 @@ flowchart TD
 
 | Gate            | Source                            | Fields / mechanism                                 |
 | --------------- | --------------------------------- | -------------------------------------------------- |
-| Edge            | Strategy logic                    | `TradeIntent.edge_after_cost_bps`                  |
+| Edge            | Strategy logic                    | `TradeIntent.edge_after_cost_bps` — theoretical edge minus spread, expected slippage, and expected per-leg commissions (aligned with `FeeModel` schedule); see **Trading costs architecture** below |
 | Liquidity       | Chain slice quotes                | `TradeIntent.liquidity_score`, spread width, depth |
 | Regime          | `RegimeActor`                     | `TradeIntent.regime_tag`                           |
 | Session         | `SessionActor`                    | Blackout windows, minutes-to-expiry, event flags   |
@@ -242,8 +243,9 @@ flowchart TD
 | Emulated triggers        | `OrderEmulator`                                                     | Stops/trailing when venue lacks native support                                   |
 | Execution algos          | `ExecAlgorithm` (e.g. TWAP)                                         | Scale in/out without blowing spreads                                             |
 | Pre-trade (basic)        | `RiskEngine`                                                        | Notional, rate limits, qty/price validation, trading state — **not greek-aware** |
-| Portfolio / fills        | `Portfolio`, position events, `OrderFilled`                         | PnL, margin                                                                      |
-| Backtest parity          | `BacktestNode` + catalog                                            | Same `OptionChainManager` path as live                                           |
+| Portfolio / fills        | `Portfolio`, position events, `OrderFilled`                         | PnL, margin; `OrderFilled.commission` on every fill                            |
+| Trading fees (backtest)  | `FeeModel` on `BacktestVenueConfig` (`FixedFeeModel`, `MakerTakerFeeModel`, or custom) | `get_commission(order, fill_qty, fill_px, instrument)` → `OrderFilled.commission`; **not** configured on live `TradingNode` (venue passes through) |
+| Backtest parity          | `BacktestNode` + catalog                                            | Same `OptionChainManager` path as live; same `FeeModel` schedule as edge gate uses for pre-trade estimates |
 | Rates / divs             | `YieldCurveData` in cache                                           | Fallback `flat_interest_rate` in calculator                                      |
 | Custom context transport | NT custom data types + `subscribe_data()`                           | `RegimeTag`, session phase published by Actors                                   |
 
@@ -265,7 +267,7 @@ Only components NT does not provide:
 | `**SelectorActor` + `DiversificationPolicy**` | TopN across N strategies, capital allocation                                                        | When N > 1 strategies compete for capital     |
 | `**IngestionPlannerActor**`                   | Cost-aware subscription plan (which series/strikes to subscribe)                                    | When API budget becomes a constraint          |
 | `**ActorClassifier` + human approval**        | Auto vs human routing for large/risky trades                                                        | When live capital at scale                    |
-| `**LearningModule`**                          | PnL attribution (theta/gamma/vega/slippage), calibration                                            | When fills accumulate for feedback            |
+| `**LearningModule`**                          | PnL attribution (theta/gamma/vega/slippage, commission), `edge_predicted_bps` vs `edge_realized_bps` calibration | When fills accumulate for feedback            |
 | `**Journal**`                                 | Cross-cutting audit on every gate, order, fill                                                      | Core — from day one                           |
 
 
@@ -318,6 +320,59 @@ NT `RiskEngine` is always on. Custom greek policy is an additional gate, not a r
 
 ---
 
+## Trading costs architecture (FeeModel + edge gate)
+
+Three related layers — do **not** conflate API subscription cost (HOT/WARM/COLD) with trading commissions.
+
+| Layer | Owner | Mechanism | Purpose |
+| --- | --- | --- | --- |
+| **Pre-trade edge** | Strategy (`build_intent`) | `TradeIntent.edge_after_cost_bps` | Theoretical edge minus half-spread, expected slippage, and **expected per-leg commissions** before submit |
+| **Backtest accounting** | NT `FeeModel` on `BacktestVenueConfig` | `FixedFeeModel`, `MakerTakerFeeModel`, or custom IB options schedule | Apply commissions on fills so `Portfolio` PnL and backtest attribution are realistic |
+| **Live accounting** | NT adapter + `Portfolio` | `OrderFilled.commission` from venue | No `FeeModel` on `TradingNode` — IB reports actual commissions |
+| **Post-trade attribution** | `LearningModule` (Phase 4) | `OrderFilled.commission` + slippage vs mid | Decompose realized edge; compare `edge_predicted_bps` vs `edge_realized_bps` |
+
+**Alignment rule:** The fee schedule used in `edge_after_cost_bps` pre-trade estimates must match the `FeeModel` wired in `BacktestVenueConfig` (and documented per venue in config). Otherwise the edge gate and backtest PnL diverge.
+
+```mermaid
+flowchart LR
+  subgraph pre [Pre-trade — custom]
+    EDGE["edge_after_cost_bps"]
+    GATE["Edge gate"]
+  end
+
+  subgraph nt_bt [Backtest — NT]
+    FM["FeeModel"]
+    FILL["OrderFilled.commission"]
+    PF["Portfolio PnL"]
+  end
+
+  subgraph post [Post-trade — custom Phase 4]
+    LM["LearningModule"]
+    LR["LearningRecord"]
+  end
+
+  EDGE --> GATE
+  FM --> FILL --> PF
+  FILL --> LM --> LR
+  EDGE -.->|"same schedule as"| FM
+```
+
+**NT types (do not reimplement):**
+
+- `nautilus_trader.backtest.models.fee.FeeModel` — abstract; `get_commission(order, fill_qty, fill_px, instrument) -> Money`
+- `FixedFeeModel` — per-fill fixed commission (e.g. per-contract IB options fee)
+- `MakerTakerFeeModel` — notional-based maker/taker schedule (crypto venues)
+
+**Custom-only (Phase 4):**
+
+- `configs/fees/*.yaml` — venue fee schedule (per-contract, per-leg multiplier for spreads)
+- `LearningRecord.commission` (or derive from fill events) — separate from `slippage_bps` in attribution
+- `docs/implementation/learning-attribution.md` — document how commission enters `edge_realized_bps`
+
+**Phase 3 placeholder (known gap):** Early strategies may stub `edge_after_cost_bps` (e.g. `max(min_edge_after_cost_bps, 10.0)`). Phase 4 replaces stub with quote-derived cost math and wires `FeeModel` in `build_backtest_node()`.
+
+---
+
 ## Strategy lifecycle (per strategy, not global batch)
 
 Each Strategy owns its state machine. There is no global `Idle → Ingesting → Analyzing → Acting` cycle.
@@ -367,7 +422,7 @@ What `sequence-diagram.puml` must depict:
 | `RiskPolicy`            | Configurable greek and loss limits                                        |
 | `RiskAssessment`        | Gate result: pass/fail, breached rules, projected greeks                  |
 | `DiversificationPolicy` | TopN caps per instrument/strategy/gross risk                              |
-| `LearningRecord`        | PnL attribution: theta, gamma, vega, slippage, edge_realized vs predicted |
+| `LearningRecord`        | PnL attribution: theta, gamma, vega, slippage, commission, edge_realized vs predicted |
 | `JournalEntry`          | Audit record cross-cutting all stages                                     |
 | `ActorKind` + enums     | Human vs automation routing                                               |
 
@@ -478,7 +533,8 @@ Keep v1's scatter/reduce/join barrier **only** for offline research. Live strate
 | Multi-strategy | ProcessPool + `ResultSelector` live | Multiple Strategies + optional `SelectorActor`    | Concurrency diagram                          |
 | Backtest       | Underspecified                      | Catalog + same Strategy in `BacktestNode`         | README section                               |
 | Venues         | IB / Binance / Derive               | IB 0DTE; crypto via Deribit/OKX; no Derive        | Venue matrix in README                       |
-| Learning       | PnL vs certainty                    | Attribution on NT fill events                     | Extend `LearningRecord` in data model        |
+| Learning       | PnL vs certainty                    | Attribution on NT fill events + `OrderFilled.commission` | Extend `LearningRecord`; `learning-attribution.md` |
+| Trading fees   | Not specified                       | NT `FeeModel` (backtest) + edge gate alignment    | `configs/fees/`; NT mapping table row        |
 | Trade decision | `certainty` + `risk_pct`            | Layered gates → `TradeIntent`                     | Sequence diagram + data model                |
 
 
@@ -491,9 +547,9 @@ All changes target `[docs/design/](docs/design/)` only.
 ### README.md
 
 - Replace "hourly quant-trading pipeline" with **"NT-first 0DTE extension layer"**
-- Add design goals, non-goals, and NT mapping table
+- Add design goals, non-goals, and NT mapping table (include `FeeModel` row)
 - Add venue matrix and two-loop explanation
-- Add layered trade gates section
+- Add layered trade gates section and **trading costs architecture** (`FeeModel` + edge gate alignment)
 - Default cadence via NT subscriptions (link to ingestion-tiers.md)
 
 ### class-diagram.puml

@@ -20,6 +20,23 @@ package "nautilus_trader (engine)" <<Frame>> {
   class "Actor (nt)" as NTActor
 }
 
+package "trade_baby_trade.node.adapters" <<Frame>> #LightYellow {
+  class VenueAdapterRegistry {
+    +attach_clients(node, config): void
+  }
+  class DeribitAdapter
+  class IBAdapter
+}
+note bottom of VenueAdapterRegistry
+  Selects venue from config.venue.adapter.
+  Deribit primary; IB secondary.
+  No venue logic in gates or FSM.
+end note
+VenueAdapterRegistry --> DeribitAdapter
+VenueAdapterRegistry --> IBAdapter
+DeribitAdapter ..> DataEngine : data + exec clients
+IBAdapter ..> DataEngine : data + exec clients
+
 ' ====================================================================
 ' Custom Actors — cross-cutting context on MessageBus
 ' ====================================================================
@@ -32,7 +49,9 @@ class SessionActor {
 }
 note right of SessionActor
   Publishes session phase and
-  blackout (e.g. T-30m to close).
+  blackout (e.g. T-30m to expiry).
+  Crypto: daily UTC expiry calendar.
+  Equity: US market close calendar.
   Strategies reject new entries;
   InPosition strategies may flatten.
 end note
@@ -52,7 +71,8 @@ class IngestionPlannerActor {
 }
 note right of IngestionPlannerActor
   Optional — cost-aware subscription
-  planning when API budget is a constraint.
+  planning when API budget is a constraint
+  (any venue, not IB-only).
 end note
 
 ' ====================================================================
@@ -76,6 +96,8 @@ note bottom of Strategy
   Inherits NT Strategy (which inherits Actor).
   .greeks -> GreeksCalculator.
   Owns per-strategy lifecycle state machine.
+  Spread construction via strategies/selectors/
+  (Deribit combo | IB BAG) — venue-specific.
 end note
 
 ' ====================================================================
@@ -144,6 +166,7 @@ ApprovalHandler <|.. AutomationHandler
 ' ====================================================================
 ' Composition / collaboration
 ' ====================================================================
+TradingNode o-- VenueAdapterRegistry
 TradingNode *-- DataEngine
 TradingNode *-- GreeksCalculator
 TradingNode *-- RiskEngine

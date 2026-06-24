@@ -1,10 +1,11 @@
 @startuml sequence-diagram
-title trade_baby_trade — Sequence Diagram (live 0DTE flow)
+title trade_baby_trade — Sequence Diagram (live 0DTE flow — Deribit primary)
 
 skinparam sequenceMessageAlign center
 autonumber
 
 participant "TradingNode" as TN
+participant "Deribit adapter\n(Data + Exec)" as VA
 participant "DataEngine\n+ OptionChainManager" as DE
 participant "SessionActor" as Sess
 participant "RegimeActor" as Reg
@@ -17,18 +18,24 @@ participant "LearningModule" as Learn
 participant "Journal" as Journal
 
 == Node start — instrument load ==
-TN -> DE : build_options_chain (IB) / load instruments
-DE --> TN : OptionContract + OptionSpread InstrumentIds
+TN -> VA : connect (API key from env)
+VA -> DE : load BTC/ETH option series
+DE --> TN : OptionContract + CryptoOptionSpread InstrumentIds
+note over TN, DE
+  IB secondary path: build_options_chain
+  via IB instrument provider → BAG spreads.
+end note
 TN -> Sess : on_start()
 TN -> Reg : on_start()
 TN -> Strat : on_start()
 
 == Subscribe — event-driven data (not batch fetch) ==
-Strat -> DE : subscribe_quote_ticks(underlying)
-Strat -> DE : subscribe_option_chain(series_id,\nsnapshot_interval_ms=60_000)
+Strat -> DE : subscribe_quote_ticks(underlying / perp)
+Strat -> DE : subscribe_option_chain(series_id,\nsnapshot_interval_ms=30_000)
 note over Strat, DE
   WARM tier: chain snapshots for signal gen.
   HOT tier: quote ticks on underlying + open legs.
+  Deribit: prefer venue-streamed option greeks.
 end note
 Sess -> Strat : publish session_phase (MessageBus)
 Reg -> Strat : publish regime_tag (MessageBus)
@@ -52,14 +59,18 @@ else all gates pass
   alt greek policy fails
     Strat -> Journal : record(GATE, "greek limit breached")
   else greek policy pass
-    Strat -> Strat : build OrderList\n(OptionSpread / IB BAG)
+    Strat -> Strat : build OrderList\n(CryptoOptionSpread combo)
+    note right of Strat
+      IB path: OptionSpread / BAG InstrumentId
+      via strategies/selectors/ib.py
+    end note
     Strat -> RE : submit_order_list(orders)
     RE -> RE : notional / rate / qty checks
     alt RiskEngine rejects
       RE --> Strat : denied
       Strat -> Journal : record(ACT, "RiskEngine denied")
     else RiskEngine accepts
-      RE -> EE : route to venue
+      RE -> EE : route to Deribit
       EE --> Strat : OrderAccepted
       Strat -> Journal : record(ACT, order_id)
     end
@@ -68,10 +79,10 @@ end
 
 == Post-entry — continuous management ==
 loop while InPosition
-  DE -> Strat : on_quote_tick(underlying)
-  DE -> Strat : on_option_greeks(open legs)
+  DE -> Strat : on_quote_tick(underlying / perp)
+  DE -> Strat : on_option_greeks(open legs)\n[venue-streamed on Deribit]
   alt delta band breach
-    Strat -> Strat : hedge via contingent order
+    Strat -> Strat : hedge via perp order
     Strat -> RE : submit_order(hedge)
   else TP / SL / time stop
     Strat -> RE : submit_order_list(flatten)
@@ -85,6 +96,6 @@ end
 EE -> PF : OrderFilled
 PF -> Strat : on_order_filled
 EE -> Learn : OrderFilled event
-Learn -> Learn : attribute PnL\n(theta, gamma, vega, slippage)
+Learn -> Learn : attribute PnL\n(theta, gamma, vega, slippage, commission)
 Learn -> Journal : record(LEARN, LearningRecord)
 @enduml

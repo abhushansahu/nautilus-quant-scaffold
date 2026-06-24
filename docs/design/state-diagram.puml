@@ -12,7 +12,7 @@ Flat --> Evaluating : on_option_chain\nor on_quote_tick
 
 state Evaluating {
   Evaluating : layered gates:\nedge, liquidity, regime,\nsession, greek, ops
-  Evaluating : build TradeIntent +\ntarget OptionSpread InstrumentId
+  Evaluating : build TradeIntent +\ntarget spread InstrumentId\n(combo or BAG per venue)
 }
 
 Evaluating --> Flat : any gate fails\n(journal reason)
@@ -31,7 +31,7 @@ state InPosition {
 }
 
 InPosition --> Exiting : TP / SL / hedge trigger\n/ time stop
-InPosition --> Flat : SessionActor flatten signal\n(T-30m blackout)
+InPosition --> Flat : SessionActor flatten signal\n(T-30m before expiry)
 
 state Exiting {
   Exiting : submit flatten OrderList
@@ -47,24 +47,29 @@ state "SessionActor" as SA {
   state "Normal" as SAN
   state "Blackout" as SAB
   SAN : new entries allowed
-  SAB : T-30m to close\nnew entries blocked
-  SAN --> SAB : minutes_to_expiry <= 30
-  SAB --> SAN : session reset
+  SAB : T-30m to expiry\nnew entries blocked
+  SAN --> SAB : minutes_to_expiry <= threshold
+  SAB --> SAN : session reset / new expiry day
 }
 
 note right of Flat
   During blackout: Flat rejects entries;
   InPosition may still manage/flatten.
+  Crypto: daily UTC expiry (e.g. 08:00).
+  Equity: US market close (config overlay).
 end note
 
 note right of Evaluating
   No global batch cycle.
   Each Strategy owns its own state machine.
   Default = no trade until all gates pass.
+  Venue spread selection delegated to
+  strategies/selectors/ (Deribit | IB).
 end note
 
 note bottom of InPosition
-  Post-entry: delta band breach -> hedge;
+  Post-entry: delta band breach -> hedge
+  (perp on Deribit, underlying on IB);
   time stop -> flatten.
   Journal on every transition.
 end note

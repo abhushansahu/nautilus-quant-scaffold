@@ -7,6 +7,8 @@ skinparam conditionStyle inside
 start
 :TradingNode.run() — single-threaded event loop;
 note right
+  Venue adapter (Deribit | IB) wires
+  data + exec clients from config.
   Strategies and Actors are concurrent
   components on the NT MessageBus.
   No parallel ingestion pipeline.

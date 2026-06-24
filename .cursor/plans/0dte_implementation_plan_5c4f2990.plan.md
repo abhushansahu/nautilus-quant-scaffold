@@ -1,6 +1,6 @@
 ---
 name: 0DTE Implementation Plan
-overview: "Implement the NT-first 0DTE extension layer from [docs/design/](docs/design/) as a greenfield Python package. Deliver in vertical slices: each phase produces grep-able journal output and observable behavior. Shared Strategy/Actor code runs on both BacktestNode and TradingNode from Phase 1 (stubs first, real logic incrementally)."
+overview: "NT-first 0DTE options extension layer. Primary goal: trade crypto 0DTE options (Deribit first), IB equity 0DTE second. Phases 1–3 delivered a venue-agnostic core (gates, FSM, journal). Phases 4+ pivot to venue adapter registry, Deribit live/backtest path, costs/attribution, multi-strategy, then IB as secondary venue."
 todos:
   - id: scaffold-package
     content: Add src layout, pyproject (scripts + hatch), dev deps (pytest, ruff), Makefile, CI unit + backtest smoke
@@ -41,11 +41,23 @@ todos:
   - id: integration-tests
     content: BacktestNode e2e with catalog fixture; TradingNode smoke (--dry-run, no live orders in CI)
     status: completed
-  - id: phase4-multi-strategy
-    content: SelectorActor, approval handlers, LearningModule + attribution design note; optional JournalActor refactor
+  - id: phase4-venue-foundation
+    content: Venue adapter registry in factory; DeribitConfig + crypto session YAML; paper_btc profile; update design docs venue priority
     status: pending
-  - id: phase5-optional
-    content: IngestionPlannerActor, offline ProcessPool research, crypto venue configs (deferred)
+  - id: phase5-deribit-path
+    content: Deribit live wiring; crypto 0DTE spread OrderList; venue-streamed greeks; Deribit catalog fixture + backtest integration
+    status: pending
+  - id: phase6-costs-attribution
+    content: Deribit FeeModel + real edge_after_cost_bps; learning-attribution.md; LearningModule with commission/slippage
+    status: pending
+  - id: phase7-multi-strategy
+    content: SelectorActor, approval handlers, DiversificationPolicy TopN; optional JournalActor refactor
+    status: pending
+  - id: phase8-ib-secondary
+    content: IB adapter as second venue profile; BAG spread selector; ib_options fee config; paper_spy as secondary profile
+    status: pending
+  - id: phase9-optional
+    content: IngestionPlannerActor, offline ProcessPool research, Binance perp hedge, OKX/Bybit; Derive out of scope
     status: pending
 isProject: false
 ---
@@ -54,11 +66,30 @@ isProject: false
 
 ## Context
 
-Design v2 in [`docs/design/`](docs/design/) is complete. The repo has **no application code** yet — only [`pyproject.toml`](pyproject.toml) (NautilusTrader 1.228+, Pydantic, Typer), CI smoke import, and design artifacts.
+Design v2 in [`docs/design/`](docs/design/) is complete. **Phases 1–3 are delivered** — venue-agnostic gates, actors, FSM, journal, and reference strategy plumbing on `BacktestNode` / `TradingNode`.
+
+**Primary goal:** Trade **crypto 0DTE options**. Venue priority:
+
+1. **Deribit** (first) — NT adapter, venue-streamed greeks, combos/IV orders
+2. **Interactive Brokers** (second) — equity index 0DTE (SPX/SPY), BAG spreads, local greeks
+3. **Later (not soon):** Binance (perp hedge only), OKX/Bybit; **Derive** explicitly out of scope until NT adapter is stable
 
 **Principle:** NautilusTrader orchestrates; we extend with Actors, Strategies, and thin policy objects. Do **not** build parallel ingestion, greek books, or batch pipelines.
 
-**Phase 1 constraint:** Shared Strategy/Actor code must run on **both** `BacktestNode` and `TradingNode` from the start — using **stubs** in Phase 1, real behavior added incrementally in Phases 2–3.
+**Dual-node constraint (unchanged):** Shared Strategy/Actor code runs on **both** `BacktestNode` and `TradingNode`. Venue-specific logic lives in config profiles + factory adapter registry + strategy structure selectors — not in gates, journal, or FSM.
+
+### Refactoring scope (Phases 4+)
+
+Phases 1–3 built a **venue-agnostic core** (~80% of custom code). The crypto-first pivot is a **moderate integration refactor**, not a rewrite:
+
+| Keep as-is | Change / add |
+| --- | --- |
+| Gates, `RiskPolicy`, journal, FSM, actors (pattern) | `node/adapters/` venue registry |
+| `TradeIntent`, models, config layering | `DeribitConfig`, crypto session YAML |
+| CLI commands (`backtest`, `paper`, `journal`) | `paper_btc.yaml` as default profile |
+| Unit tests for gates/models/actors | Deribit catalog fixture + integration tests |
+| — | `strategies/selectors/` for combo vs BAG spreads |
+| — | `MakerTakerFeeModel` (Phase 6) before `FixedFeeModel` (Phase 8) |
 
 ---
 
@@ -68,12 +99,16 @@ Each phase must produce **observable, grep-able output** (journal lines), not on
 
 ```mermaid
 flowchart LR
-  P1[P1: node starts + JSONL journal + catalog smoke]
-  P2[P2: SessionActor + pure gates + journal proof]
-  P3[P3: full path gates → order → fill + minimal PnL]
-  P4[P4: multi-strategy + full attribution + approval]
-  P5[P5: optional cost/research/crypto]
-  P1 --> P2 --> P3 --> P4 --> P5
+  P1[P1: foundation ✓]
+  P2[P2: gates + actors ✓]
+  P3[P3: FSM + reference ✓]
+  P4[P4: venue registry + crypto config]
+  P5[P5: Deribit live + spread + catalog]
+  P6[P6: fees + attribution]
+  P7[P7: multi-strategy + approval]
+  P8[P8: IB secondary]
+  P9[P9: optional research/hedge]
+  P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9
 ```
 
 **Correlation ID:** Every journal entry carries `ref_id` (= `TradeIntent.intent_id` once intents exist) plus `strategy_id`. Propagate through gate failures, order submit, and fills so traders and PnL checkers can trace one decision end-to-end.
@@ -93,7 +128,7 @@ flowchart TB
     JournalSvc[Journal service + JSONL sink]
   end
 
-  subgraph nt_live [TradingNode — IB paper]
+  subgraph nt_live [TradingNode — Deribit / IB]
     TN[TradingNode.run]
   end
 
@@ -121,6 +156,8 @@ The greek gate **cannot** live entirely inside a pure evaluator — it requires 
 | Greek snapshots | `BaseZeroDteStrategy` | No | `self.greeks.portfolio_greeks(spot_shock=..., vol_shock=...)` |
 | Greek policy | `gates/evaluator.py` → `RiskPolicy.check()` | **Yes** | Limit math on `current_greeks` + `projected_greeks` snapshots |
 | NT pre-trade | NT `RiskEngine` | No | notional, rate, qty/price — always on, not reimplemented |
+| Trading fees (backtest) | NT `FeeModel` on `BacktestVenueConfig` | No | `FixedFeeModel` / `MakerTakerFeeModel` / custom; populates `OrderFilled.commission` |
+| Pre-trade edge costs | Strategy `build_intent` | **Yes** (estimate) | `edge_after_cost_bps` = theoretical edge − spread − expected slippage − expected commissions (schedule must match `FeeModel`) |
 
 **Strategy orchestration pattern:**
 
@@ -174,44 +211,52 @@ src/trade_baby_trade/
   actors/
     session.py      # SessionActor
     regime.py       # RegimeActor
-    selector.py     # Phase 4 — SelectorActor
-    ingestion.py    # Phase 5 — IngestionPlannerActor
+    selector.py     # Phase 7 — SelectorActor
+    ingestion.py    # Phase 9 — IngestionPlannerActor
   strategies/
     base.py         # NT Strategy subclass + lifecycle FSM
     reference.py    # ReferenceZeroDteStrategy
+    selectors/      # Phase 5 — venue-specific structure selection (deribit.py, ib.py)
     skeleton.py     # Phase 1 — on_start/on_stop journal only
-  approval/         # Phase 4
+  approval/         # Phase 7
     classifier.py
     handlers.py
-  learning/         # Phase 4
+  learning/         # Phase 6
     module.py
   config/
     schema.py       # Pydantic config models
     loader.py       # YAML overlay merge + env
   node/
     factory.py      # build_trading_node / build_backtest_node
+    adapters/       # Phase 4 — venue adapter registry (deribit.py, ib.py)
   cli/
     main.py         # typer: backtest, paper, journal
 tests/
-  unit/             # gates, models, risk policy, actors
+  unit/             # gates, models, risk policy, actors, adapters
   integration/      # BacktestNode smoke; TradingNode config smoke
   fixtures/
-    catalog/        # minimal NT catalog slice (or README + download script)
-configs/
+    catalog/        # SPY slice (legacy Phase 1–3)
+    catalog_deribit/  # Phase 5 — BTC/ETH options catalog slice
   base.yaml                 # venue, logging, journal path
+  fees/
+    deribit_options.yaml    # maker/taker schedule (Phase 6 — primary)
+    ib_options.yaml         # per-contract schedule (Phase 8 — secondary)
   risk/
     conservative.yaml       # policy maker owned
     default.yaml
   session/
-    us_equity.yaml          # blackout T-30m
+    crypto_deribit.yaml     # daily expiry blackout (Phase 4 — primary)
+    us_equity.yaml          # blackout T-30m (Phase 8 — secondary)
   strategies/
-    reference.yaml          # strategy params, underlying SPY
+    reference.yaml          # strategy params, underlying + option_series_id
   profiles/
-    paper_spy.yaml          # merged profile for CLI default
+    paper_btc.yaml          # default operator profile (Phase 4 — primary)
+    backtest_btc.yaml       # Deribit catalog backtest (Phase 5)
+    paper_spy.yaml          # IB equity profile (Phase 8 — secondary)
 docs/
   implementation/
     gate-boundary.md        # ADR: pure vs NT greek gate split
-    learning-attribution.md # Phase 4 spike — theta/gamma/vega decomposition method
+    learning-attribution.md # Phase 4 spike — theta/gamma/vega decomposition + commission/slippage vs edge
 ```
 
 **Naming:** Python package `trade_baby_trade` (underscore); CLI entry `trade-baby-trade`.
@@ -224,16 +269,18 @@ docs/
 | --- | --- | --- |
 | Policy maker | Greek limits, shocks, daily loss | `configs/risk/conservative.yaml` |
 | Strategy maker | Underlying, structure params, edge thresholds | `configs/strategies/reference.yaml` |
-| Trader / operator | Profile selection, dry-run, journal path | `configs/profiles/paper_spy.yaml` |
-| Coder | Factory wiring, new strategy class registration | `node/factory.py`, `config/schema.py` |
+| Trader / operator | Profile selection, dry-run, journal path | `configs/profiles/paper_btc.yaml` |
+| Coder | Factory wiring, venue adapter, strategy registration | `node/factory.py`, `node/adapters/`, `config/schema.py` |
 
 Journal payload includes `risk_policy_version` (hash or semver string) so policy changes are auditable in backtests.
 
 ---
 
-## Phase 1 — Foundation, dual-node skeleton, first observable slice
+## Phase 1 — Foundation, dual-node skeleton, first observable slice ✓
 
-**Goal:** Importable package, data model, **JSONL journal**, layered config, dual node factories with **stubs**, catalog smoke test, operator CLI basics. No trading logic yet — but nodes start/stop cleanly and journal proves lifecycle.
+**Status: completed 2026-06-21.**
+
+**Goal:** Importable package, data model, **JSONL journal**, layered config, dual node factories with **stubs**, catalog smoke test, operator CLI basics.
 
 **Vertical slice proof:** Run `backtest` → JSONL contains `NODE_START`, `NODE_STOP`, `STRATEGY_START` from skeleton strategy.
 
@@ -318,7 +365,9 @@ Phase 1: `--dry-run` flag parsed and passed to config; skeleton ignores it. Phas
 
 ---
 
-## Phase 2 — Actors + pure gate pipeline
+## Phase 2 — Actors + pure gate pipeline ✓
+
+**Status: completed 2026-06-21.**
 
 **Goal:** Cross-cutting context on MessageBus; **unit-tested pure gates**; SessionActor blackout provable via journal in backtest.
 
@@ -371,7 +420,9 @@ Before full reference strategy, extend skeleton or add `GatedSkeletonStrategy` t
 
 ---
 
-## Phase 3 — Base Strategy + reference 0DTE strategy + minimal PnL
+## Phase 3 — Base Strategy + reference 0DTE strategy + minimal PnL ✓
+
+**Status: completed 2026-06-21.** Built on SPY catalog + IB-oriented defaults; core FSM/gates are venue-agnostic. Spread `OrderList` on live options deferred to Phase 5 (Deribit first).
 
 **Goal:** End-to-end flow from [`sequence-diagram.puml`](docs/design/sequence-diagram.puml) on both nodes: gates → greek check → order → fill.
 
@@ -408,7 +459,7 @@ Replace `SkeletonZeroDteStrategy` in factory with `ReferenceZeroDteStrategy` (or
 
 ### 3.3 Subscriptions ([`ingestion-tiers.md`](docs/design/ingestion-tiers.md))
 
-In `on_start`, apply default 0DTE equity profile:
+In `on_start`, apply 0DTE subscription profile (venue-specific intervals in config):
 
 | Concern | NT call | Tier |
 | --- | --- | --- |
@@ -416,7 +467,7 @@ In `on_start`, apply default 0DTE equity profile:
 | Signal chain | `subscribe_option_chain(..., snapshot_interval_ms=60_000)` | WARM |
 | Open legs | `subscribe_option_greeks` per leg when in position | HOT |
 
-BacktestNode: same subscribe calls; data from catalog. TradingNode: IB instrument provider + `build_options_chain` at start.
+BacktestNode: same subscribe calls; data from catalog. TradingNode: venue instrument provider + chain at start (IB in Phase 3; Deribit in Phase 5).
 
 ### 3.4 ReferenceZeroDteStrategy
 
@@ -424,8 +475,10 @@ Minimal alpha for plumbing validation (not production edge):
 
 - Select ATM ± N vertical spread from `OptionChainSlice`
 - Populate `TradeIntent` with edge/liquidity scores from slice quotes
-- Build `OrderList` for `OptionSpread` / IB BAG `InstrumentId`
+- Build `OrderList` for spread instrument (IB BAG in Phase 8; Deribit combo in Phase 5)
 - Submit via `submit_order_list` → NT `RiskEngine` → `ExecutionEngine` (skipped when `dry_run`)
+
+Phase 3 delivered `backtest_plumbing` on SPY underlying for catalog-only proof; real spread submit is Phase 5 (Deribit).
 
 ### 3.5 Post-entry management
 
@@ -446,7 +499,7 @@ On `on_order_filled`:
 - Journal `PNL` with **realized PnL from NT `Portfolio`** for the strategy/instrument
 - Include `edge_predicted_bps` from intent in payload for later attribution comparison
 
-Full theta/gamma/vega decomposition deferred to Phase 4 `LearningModule`.
+Full theta/gamma/vega decomposition and **FeeModel wiring** deferred to Phase 6 `LearningModule`.
 
 ### 3.7 Gate rejection report (backtest helper)
 
@@ -457,53 +510,214 @@ CLI or test helper: `journal report --path runs/foo.jsonl` → table of gate fai
 - **Backtest:** `ReferenceZeroDteStrategy` against catalog fixture; assert journal trail through gates → order → fill → PnL; state transitions.
 - **TradingNode smoke:** build node with `--dry-run`; actors register; subscriptions fire; **no live orders in CI**.
 
-Manual: `trade-baby-trade paper` against IB paper account after CI green.
+Manual (Phase 3): SPY catalog backtest only. Deribit testnet paper → Phase 5. IB paper → Phase 8.
 
 ---
 
-## Phase 4 — Multi-strategy, approval, full learning attribution
+## Phase 4 — Venue foundation (structural pivot)
 
-Introduce when design says "N > 1" or fills accumulate — after Phase 3 path is stable.
+**Goal:** Introduce venue adapter registry and crypto-first config profiles **without changing gate/FSM/journal behavior**. SPY backtest profile continues to work; new default operator path is Deribit-oriented.
 
-**Do not enable SelectorActor in config until Phase 4** — Phase 3 assumes single strategy, full capital.
+**Vertical slice proof:** `trade-baby-trade paper --config configs/profiles/paper_btc.yaml --dry-run` builds `TradingNode` with Deribit adapter config (no live orders in CI); `backtest` still passes on legacy SPY catalog.
 
-### 4.0 Learning attribution design spike
+### 4.1 Venue adapter registry
 
-Write `docs/implementation/learning-attribution.md` before coding `LearningModule`: document approximation method for theta/gamma/vega PnL decomposition on 0DTE (rule-based, no ML). Review against `LearningRecord` fields in data model.
+Refactor [`node/factory.py`](src/trade_baby_trade/node/factory.py):
 
-### 4.1 SelectorActor + DiversificationPolicy
+- Add `node/adapters/` with `_attach_deribit_clients()` and move existing IB logic to `_attach_ib_clients()`
+- Select adapter via `config.venue.adapter` (`DERIBIT` | `IB`); fail closed on unknown adapter
+- `build_backtest_node`: venue-aware `BacktestVenueConfig` (name, base currency, account type from config — not hardcoded `NYSE`/`USD`)
+- Keep factory CLI signatures unchanged
+
+### 4.2 Config schema + profiles
+
+Extend [`config/schema.py`](src/trade_baby_trade/config/schema.py):
+
+| Model | Fields | Notes |
+| --- | --- | --- |
+| `VenueConfig` | `adapter`, `name`, `base_currency`, `account_type` | `adapter: DERIBIT` becomes default for new profiles |
+| `DeribitConfig` | `api_key_env`, `api_secret_env`, `testnet` | Values from env only; document in `.env.example` |
+| `SessionConfig` | add optional `expiry_mode: daily_utc \| us_equity_close` | Crypto uses daily UTC expiry; equity uses market close |
+
+New config overlays:
+
+- `configs/session/crypto_deribit.yaml` — daily expiry blackout (e.g. T-30m before 08:00 UTC for BTC options)
+- `configs/profiles/paper_btc.yaml` — underlying index/perp, `option_series_id`, `venue.adapter: DERIBIT`
+- Update `configs/base.yaml` default `venue.adapter` comment to reflect crypto-first priority
+
+Retain `paper_spy.yaml` unchanged for now (becomes secondary in Phase 8).
+
+### 4.3 Dependencies + design docs
+
+- [`pyproject.toml`](pyproject.toml): add Deribit extra (`nautilus-trader[deribit]` or equivalent NT 1.229+ extra); keep `[ib]` for Phase 8
+- Update [`docs/design/README.md`](docs/design/README.md) venue matrix: **Deribit primary**, IB secondary
+- Update [`docs/design/ingestion-tiers.md`](docs/design/ingestion-tiers.md) defaults: Deribit WARM 30–60s, venue-streamed greeks for open legs
+
+### 4.4 Tests
+
+- Unit: adapter registry selects correct client factory from `venue.adapter`
+- Integration: `paper_btc.yaml` + `dry_run: true` builds TradingNode without credentials
+- Regression: existing SPY backtest integration tests still green
+
+---
+
+## Phase 5 — Deribit 0DTE live path + backtest catalog
+
+**Goal:** Complete what Phase 3 deferred (real option spread execution) on **Deribit first** — the canonical production path. Finish spread `OrderList` submit, crypto session calendar, and Deribit catalog backtest.
+
+**Vertical slice proof:** `backtest_reference` equivalent on Deribit catalog → JSONL: gates → `ORDER_SUBMIT` (combo/spread) → `FILL` → `PNL`. Manual: `paper` against Deribit testnet with `--dry-run` off (operator only).
+
+### 5.1 Deribit live wiring
+
+- Wire NT Deribit data + exec client factories in `node/adapters/deribit.py`
+- Instrument provider loads BTC/ETH option series at node start
+- Env: `DERIBIT_API_KEY`, `DERIBIT_API_SECRET`, `DERIBIT_TESTNET` (names in `.env.example` only)
+
+### 5.2 Crypto session + subscriptions
+
+Apply Deribit 0DTE profile per [`ingestion-tiers.md`](docs/design/ingestion-tiers.md):
+
+| Concern | NT call | Tier | Deribit notes |
+| --- | --- | --- | --- |
+| Underlying | `subscribe_quote_ticks(underlying)` | HOT | BTC-PERPETUAL or index |
+| Signal chain | `subscribe_option_chain(..., snapshot_interval_ms=30_000–60_000)` | WARM | Shorter interval than IB |
+| Open legs | `subscribe_option_greeks` per leg | HOT | **Prefer venue-streamed greeks** over calculator-only |
+| Hedge check | `on_quote_tick` on underlying/perp | HOT | Delta band triggers |
+
+`SessionActor` uses `crypto_deribit.yaml` session overlay — daily expiry blackout, not US equity close.
+
+### 5.3 Venue-specific structure selection
+
+Add `strategies/selectors/deribit.py`:
+
+- Select ATM ± N vertical from `OptionChainSlice`
+- Build `CryptoOptionSpread` / combo `InstrumentId` (not IB BAG)
+- Populate `TradeIntent` with edge/liquidity from slice quotes
+- Submit `OrderList` via `submit_order_list` → NT `RiskEngine` → `ExecutionEngine`
+
+Refactor `ReferenceZeroDteStrategy.submit_entry` to delegate structure building to venue selector (config: `venue.adapter` or `structure_selector: deribit`).
+
+Remove reliance on `backtest_plumbing` for new Deribit profiles — keep flag only for legacy SPY regression tests.
+
+### 5.4 Deribit catalog fixture
+
+Deliver under `tests/fixtures/catalog_deribit/`:
+
+- Deribit underlying quote ticks + minimal option chain slice (committed or `scripts/build_deribit_catalog_fixture.py`)
+- `configs/profiles/backtest_btc.yaml` mirroring `backtest_reference.yaml`
+- Integration test: full gate → spread order → fill → PnL journal trail on Deribit catalog
+
+### 5.5 Post-entry management (Deribit)
+
+- TP/SL via `order_factory.bracket()` or `OrderEmulator`
+- Delta band breach → hedge via underlying perp (Deribit perpetual)
+- `SessionActor.flatten_signal` → flatten combo `OrderList`
+- Journal all actions; wire `flatten` CLI to in-position flatten on Deribit path
+
+---
+
+## Phase 6 — Trading costs + learning attribution
+
+**Goal:** Close the Phase 3 stubs for **Deribit first** — real `edge_after_cost_bps`, `FeeModel` on backtest, full `LearningModule` attribution.
+
+**Vertical slice proof:** Deribit backtest PnL reflects `MakerTakerFeeModel`; journal `LearningRecord` includes commission; `edge_predicted_bps` vs `edge_realized_bps` on fills.
+
+### Trading costs (FeeModel + edge gate)
+
+Phase 3 stubs `edge_after_cost_bps` and leaves `BacktestVenueConfig.fee_model` unset. Phase 6 closes the gap per design **Trading costs architecture** — **Deribit schedule first**:
+
+| Work item | Module / path | Notes |
+| --- | --- | --- |
+| Fee config | `configs/fees/deribit_options.yaml`, `config/schema.py` | Maker/taker bps; overlay in loader |
+| Backtest wiring | `node/factory.py` → `BacktestVenueConfig.fee_model` | `MakerTakerFeeModel` for Deribit |
+| Pre-trade cost math | `strategies/reference.py` + shared helper | Replace stub: half-spread + slippage + expected commissions from fee config |
+| Attribution | `learning/module.py`, `models/learning.py` | Read `OrderFilled.commission`; separate from `slippage_bps` |
+| Design spike | `docs/implementation/learning-attribution.md` | Commission vs `edge_realized_bps` vs `edge_predicted_bps` |
+
+**Alignment rule:** Fee schedule in `configs/fees/*.yaml` is single source of truth for both `FeeModel` (backtest) and pre-trade `edge_after_cost_bps`. Live path uses venue-reported `OrderFilled.commission`.
+
+**NT types:** `FeeModel`, `MakerTakerFeeModel`, `FixedFeeModel`; `OrderFilled.commission` (`Money`).
+
+### 6.0 Learning attribution design spike
+
+Write `docs/implementation/learning-attribution.md` before coding `LearningModule`: rule-based theta/gamma/vega decomposition on 0DTE (no ML). Include commission and slippage as separate cost terms.
+
+### 6.1 LearningModule (full attribution)
+
+- Subscribe to NT `OrderFilled` events
+- Attribute theta/gamma/vega/slippage/**commission** → `LearningRecord`
+- Compare `edge_predicted_bps` vs `edge_realized_bps`
+- Write through Journal; rule-based `calibrate()` hook (no ML)
+
+IB `FixedFeeModel` + per-contract edge math deferred to Phase 8.
+
+---
+
+## Phase 7 — Multi-strategy, approval, optional JournalActor
+
+Introduce when N > 1 strategies compete for capital — after Deribit single-strategy path is stable.
+
+**Do not enable SelectorActor until Phase 7** — Phases 4–6 assume single strategy, full capital.
+
+### 7.1 SelectorActor + DiversificationPolicy
 
 - MessageBus join barrier: collect `TradeIntent`s from N strategies
 - Apply TopN, `max_per_instrument`, `max_per_strategy`, deterministic sort
 - Publish approved intents back to strategies or central submit path
 
-### 4.2 ActorClassifier + approval handlers
+### 7.2 ActorClassifier + approval handlers
 
 - `classify(intent) -> HUMAN | AUTOMATION` by notional/risk thresholds
-- **`HumanApprovalHandler` before automation path** — stub/CLI prompt initially; automation only after human path proven
+- **`HumanApprovalHandler` before automation path** — stub/CLI prompt initially
 - `AutomationHandler` → ExecutionEngine
 
-### 4.3 LearningModule (full attribution)
+### 7.3 Optional: JournalActor refactor
 
-- Subscribe to NT `OrderFilled` events
-- Attribute theta/gamma/vega/slippage → `LearningRecord` per design spike
-- Compare `edge_predicted_bps` vs `edge_realized_bps`
-- Write through Journal; rule-based `calibrate()` hook (no ML)
+When SelectorActor fan-in complicates injected journal calls, refactor to `JournalActor` on MessageBus. Keep JSONL sink behavior identical.
 
-### 4.4 Optional: JournalActor refactor
-
-When SelectorActor fan-in complicates injected journal calls, refactor to `JournalActor` subscribing on MessageBus. Keep JSONL sink behavior identical.
+**Vertical slice proof:** two Deribit strategies + SelectorActor TopN; `LearningRecord` on fills; human approval stub before automation.
 
 ---
 
-## Phase 5 — Optional / deferred
+## Phase 8 — IB equity 0DTE (secondary venue)
+
+**Goal:** Add IB as a **second adapter profile** without rewriting gates, FSM, or journal. Reuse venue registry from Phase 4.
+
+**Vertical slice proof:** `paper_spy.yaml` + IB paper account: `subscribe_option_chain` → BAG spread `OrderList` → fill journal trail (manual operator).
+
+### 8.1 IB adapter profile
+
+- Move/refine `_attach_ib_clients()` in `node/adapters/ib.py` (extract from factory)
+- `configs/session/us_equity.yaml` — T-30m blackout before US equity close
+- `configs/profiles/paper_spy.yaml` — `venue.adapter: IB`, SPX/SPY underlying
+- Env: `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` (unchanged)
+
+### 8.2 IB structure selector
+
+Add `strategies/selectors/ib.py`:
+
+- ATM ± N vertical from `OptionChainSlice`
+- Build `OptionSpread` / IB BAG `InstrumentId`
+- Greeks via local `GreeksCalculator` (no venue-streamed greeks on IB)
+- WARM chain interval 60s+ (IB API cost)
+
+### 8.3 IB fees
+
+- `configs/fees/ib_options.yaml` — per-contract `FixedFeeModel`
+- Wire IB fee schedule into edge gate + `BacktestVenueConfig` when `venue.adapter: IB`
+- SPY catalog backtest with IB fee model (extends legacy fixture)
+
+---
+
+## Phase 9 — Optional / deferred
 
 | Component | Trigger | Notes |
 | --- | --- | --- |
-| `IngestionPlannerActor` | IB API cost measured | Emits `SubscriptionSpec` plan only; no fetch logic |
+| `IngestionPlannerActor` | Subscription API cost measured | Emits `SubscriptionSpec` plan only; no fetch logic |
 | Offline ProcessPool research | Factor/walk-forward need | [`concurrency-activity.puml`](docs/design/concurrency-activity.puml) — never on order path |
-| Crypto venues (Deribit/OKX/Bybit) | After IB path proven | Venue-streamed greeks; shorter WARM interval |
-| Derive adapter | NT adapter stable | Explicitly out of scope per design |
+| OKX / Bybit crypto options | After Deribit path proven | Same adapter pattern as Deribit; venue-streamed greeks |
+| Binance perp hedge | Delta hedge on non-Deribit underlyings | Spot/perp only — not options venue |
+| Derive on-chain adapter | NT adapter stable | Explicitly out of scope until then |
 
 ---
 
@@ -519,13 +733,13 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 
 ## Persona deliverables by phase
 
-| Persona | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
-| --- | --- | --- | --- | --- |
-| **Coder** | Package, factory stubs, catalog fixture, ADR placeholder | Gate boundary ADR, pure tests | FSM, reference strategy, integration tests | Selector, LearningModule |
-| **Trader** | `backtest`/`paper` start/stop; JSONL audit | `journal summary`; blackout visible in journal | `--dry-run`, `flatten`, paper manual | Human approval path |
-| **Strategy maker** | Skeleton strategy hook points | Gated skeleton proof | `build_intent` / `select_structure` in reference; config-driven strategy id | Multi-strategy configs |
-| **Policy maker** | Layered `configs/risk/*.yaml` | Gate rejection in journal | `journal report` by breached rule | Policy version in attribution |
-| **PnL checker** | JSONL export | — | Fill + realized PnL journal lines | Full `LearningRecord` attribution |
+| Persona | Phases 1–3 ✓ | Phase 4 | Phase 5 | Phase 6 | Phase 7 | Phase 8 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Coder** | Gates, FSM, reference plumbing | Venue adapter registry, crypto config | Deribit spread selector, catalog fixture | `FeeModel`, `LearningModule`, edge cost math | Selector, approval | IB selector + fees |
+| **Trader** | `backtest`/`paper`, JSONL audit | `paper_btc` dry-run smoke | Deribit testnet paper | Cost-aware journal attribution | Human approval path | IB paper manual |
+| **Strategy maker** | `build_intent` hooks, config-driven strategy | Crypto session + subscription profile | Real combo `OrderList` on Deribit | Real `edge_after_cost_bps` from quotes + fees | Multi-strategy configs | IB BAG spreads |
+| **Policy maker** | `configs/risk/*.yaml`, gate journal | Crypto expiry blackout config | Deribit WARM/HOT tiers | `configs/fees/deribit_options.yaml` | TopN diversification caps | `configs/fees/ib_options.yaml` |
+| **PnL checker** | Fill + realized PnL journal | — | Spread fill trail on Deribit catalog | Full `LearningRecord` incl. commission | Multi-strategy attribution | IB fee-aligned backtest |
 
 ---
 
@@ -533,11 +747,14 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 
 | Layer | What | When |
 | --- | --- | --- |
-| Unit | `evaluate_pre_greek`, `RiskPolicy.check`, models, SessionActor blackout, operational checklist | Phase 2+ |
-| Integration | `BacktestNode` catalog smoke (node lifecycle) | **Phase 1** |
-| Integration | Full gate → order → fill journal trail | Phase 3 |
-| Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phase 1–3 |
-| Manual | `trade-baby-trade paper` against IB paper | After Phase 3 |
+| Unit | `evaluate_pre_greek`, `RiskPolicy.check`, models, SessionActor blackout, operational checklist | Phases 2+ ✓ |
+| Unit | Venue adapter registry, structure selectors | Phase 4–5 |
+| Integration | `BacktestNode` catalog smoke (node lifecycle) | Phases 1–3 ✓ |
+| Integration | Full gate → order → fill journal trail (SPY legacy) | Phase 3 ✓ |
+| Integration | Deribit catalog gate → spread → fill → PnL | Phase 5 |
+| Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phases 1–4+ |
+| Manual | `trade-baby-trade paper` against Deribit testnet | After Phase 5 |
+| Manual | `trade-baby-trade paper` against IB paper | After Phase 8 |
 
 Per [`.cursor/rules/agent.mdc`](.cursor/rules/agent.mdc): add tests when adding behavior, not upfront scaffolding tests.
 
@@ -547,10 +764,11 @@ Per [`.cursor/rules/agent.mdc`](.cursor/rules/agent.mdc): add tests when adding 
 
 | Group | Packages | When |
 | --- | --- | --- |
-| runtime | `nautilus-trader` (pin patch after first green), `pydantic`, `pyyaml`, `typer` | Phase 1 |
-| dev | `pytest`, `ruff` | **Phase 1** (CI already expects dev group) |
+| runtime | `nautilus-trader[ib]` (existing), `pydantic`, `pyyaml`, `typer` | Phases 1–3 ✓ |
+| runtime | `nautilus-trader[deribit]` (or equivalent NT extra) | Phase 4 |
+| dev | `pytest`, `ruff` | Phases 1–3 ✓ |
 
-Catalog fixture: committed slice or documented download — **Phase 1**, not Phase 3.
+Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phase 5**.
 
 ---
 
@@ -558,15 +776,30 @@ Catalog fixture: committed slice or documented download — **Phase 1**, not Pha
 
 | Phase | Done when |
 | --- | --- |
-| **1** | `backtest` runs against catalog fixture; JSONL contains node + skeleton lifecycle; `paper` builds node; ruff + pytest CI green; dev deps populated |
-| **2** | Pure gates unit-tested; SessionActor blackout produces journal rejection in backtest; `journal summary` shows gate counts |
-| **3** | Backtest JSONL: gates → order → fill → realized PnL; `--dry-run` journals intent without submit; `paper` uses same strategy class; `flatten` stub or implemented |
-| **4** | Two strategies + SelectorActor TopN; `LearningRecord` on fills; human approval before automation; optional JournalActor |
-| **5** | Optional components behind feature flags |
+| **1–3** ✓ | Venue-agnostic core: gates → order → fill → PnL on SPY catalog; `--dry-run`; 40 tests green |
+| **4** | Venue adapter registry; `paper_btc.yaml` builds TradingNode dry-run; SPY regression tests still green; design docs updated |
+| **5** | Deribit combo `OrderList` live + backtest; crypto session blackout in journal; Deribit catalog integration test green |
+| **6** | `MakerTakerFeeModel` on Deribit backtest; real `edge_after_cost_bps`; `LearningRecord` with commission on fills |
+| **7** | Two strategies + SelectorActor TopN; human approval stub before automation |
+| **8** | IB BAG spread path on `paper_spy.yaml`; `FixedFeeModel` for IB backtest; IB fee-aligned edge gate |
+| **9** | Optional components behind feature flags |
 
 ---
 
-## Key files to create first (Phase 1 order)
+## Key files — next up (Phase 4 order)
+
+1. [`docs/design/README.md`](docs/design/README.md) — flip venue priority (Deribit primary)
+2. [`src/trade_baby_trade/node/adapters/`](src/trade_baby_trade/node/adapters/) — registry + deribit + ib modules
+3. [`src/trade_baby_trade/config/schema.py`](src/trade_baby_trade/config/schema.py) — `DeribitConfig`, venue-aware `VenueConfig`
+4. [`configs/session/crypto_deribit.yaml`](configs/session/crypto_deribit.yaml) — daily expiry blackout
+5. [`configs/profiles/paper_btc.yaml`](configs/profiles/paper_btc.yaml) — default operator profile
+6. [`src/trade_baby_trade/node/factory.py`](src/trade_baby_trade/node/factory.py) — delegate to adapter registry
+7. [`pyproject.toml`](pyproject.toml) — `nautilus-trader[deribit]` extra
+8. [`.env.example`](.env.example) — `DERIBIT_API_KEY`, `DERIBIT_API_SECRET`, `DERIBIT_TESTNET`
+
+---
+
+## Key files delivered (Phases 1–3)
 
 1. [`pyproject.toml`](pyproject.toml) — package config + dev deps
 2. [`tests/fixtures/catalog/`](tests/fixtures/catalog/) — minimal catalog or download README
@@ -677,20 +910,27 @@ Catalog fixture: committed slice or documented download — **Phase 1**, not Pha
 | CLI | `cli/main.py` | `journal report` (rejections by stage/rule); `flatten` records `FLATTEN_REQUEST` |
 | Tests | `tests/integration/test_reference_backtest.py`, `tests/unit/test_reference_strategy.py` | 40 tests green |
 
-### Known constraints for Phase 4
+### Known constraints carried into Phase 4+
 
-1. **`backtest_plumbing: true`** submits underlying SPY market orders — not option spreads. Live path uses `option_series_id` + `subscribe_option_chain`; spread `OrderList` submit deferred until IB catalog/instrument load proven.
+1. **`backtest_plumbing: true`** submits underlying SPY market orders — legacy regression only. New Deribit profiles must use real spread/combo submit (Phase 5).
 2. **`OptionChainSlice`** import via `nautilus_trader.model.data.nautilus_pyo3` — not re-exported from `model.data` directly.
 3. **Dual journal paths unchanged** — factory `NODE_*` + strategy journal append to same JSONL path.
-4. **Flatten CLI** journals request only; in-position flatten is automatic via `SessionActor.flatten_signal` when node runs.
-5. **PnL journal** uses `Portfolio.realized_pnl` + `unrealized_pnl` — zero on entry fill; full theta/gamma/vega decomposition deferred to Phase 4 `LearningModule`.
-6. **Single strategy only** — no `SelectorActor`; full capital to one strategy per config.
+4. **Flatten CLI** journals request only; in-position flatten via `SessionActor.flatten_signal` when node runs.
+5. **PnL journal** uses `Portfolio.realized_pnl` + `unrealized_pnl` — full theta/gamma/vega decomposition in Phase 6 `LearningModule`.
+6. **`edge_after_cost_bps` is stubbed** — Phase 6 replaces with quote-derived costs aligned to `FeeModel` (Deribit first).
+7. **`BacktestVenueConfig.fee_model` unset** — Phase 6 wires `MakerTakerFeeModel` for Deribit.
+8. **Single strategy only** — no `SelectorActor` until Phase 7.
+9. **Factory is IB-only today** — `_attach_ib_clients()` hardcoded; Phase 4 introduces adapter registry.
+10. **Defaults are SPY/IB** — `config/schema.py` and `paper_spy.yaml` unchanged until Phase 4 adds crypto profiles; Phase 8 elevates IB as explicit secondary path.
 
 ### Phase 4 start checklist
 
-1. Write `docs/implementation/learning-attribution.md` — rule-based PnL decomposition method before coding `LearningModule`.
-2. Implement `actors/selector.py` — MessageBus join barrier, `DiversificationPolicy` TopN caps.
-3. Implement `approval/classifier.py` + `approval/handlers.py` — human path before automation.
-4. Implement `learning/module.py` — subscribe `OrderFilled`, attribute theta/gamma/vega, compare `edge_predicted_bps` vs realized.
-5. Optional: refactor injected `Journal` to `JournalActor` when multi-strategy fan-in complicates call sites.
-6. **Vertical slice proof for Phase 4:** two strategies + SelectorActor TopN; `LearningRecord` on fills; human approval stub before automation.
+1. Update [`docs/design/README.md`](docs/design/README.md) venue matrix — Deribit primary, IB secondary.
+2. Add `node/adapters/` with `registry.py`, `deribit.py`, `ib.py` (extract existing IB logic).
+3. Extend `VenueConfig` + add `DeribitConfig` in `config/schema.py`; optional `SessionConfig.expiry_mode`.
+4. Add `configs/session/crypto_deribit.yaml` and `configs/profiles/paper_btc.yaml`.
+5. Refactor `build_trading_node` / `build_backtest_node` to select adapter and venue params from config.
+6. Add `nautilus-trader[deribit]` to `pyproject.toml`; document `DERIBIT_*` env vars in `.env.example`.
+7. Unit test adapter selection; integration smoke `paper_btc.yaml` + `dry_run: true`.
+8. **Regression:** existing SPY backtest integration tests remain green.
+9. **Vertical slice proof for Phase 4:** `paper --config configs/profiles/paper_btc.yaml --dry-run` builds node with Deribit adapter config; journal `NODE_START`.

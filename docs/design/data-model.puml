@@ -35,7 +35,7 @@ enum GateStage {
 class TradeIntent <<value>> {
   +intent_id: UUID
   +strategy_id: str
-  +instrument_id: InstrumentId  ' NT OptionSpread / BAG
+  +instrument_id: InstrumentId  ' CryptoOptionSpread / OptionSpread / BAG
   +edge_after_cost_bps: float
   +liquidity_score: float
   +regime_tag: RegimeTag
@@ -45,6 +45,8 @@ class TradeIntent <<value>> {
 note bottom of TradeIntent
   InstrumentId, OptionChainSlice, QuoteTick,
   OptionGreeks, Order, Portfolio — all NT types.
+  Deribit: CryptoOptionSpread / combo.
+  IB: OptionSpread / BAG.
   Do NOT duplicate as custom entities.
 end note
 
@@ -91,6 +93,7 @@ class LearningRecord <<entity>> {
   +gamma_pnl: Decimal
   +vega_pnl: Decimal
   +slippage_bps: float
+  +commission: Decimal
   +edge_predicted_bps: float
   +edge_realized_bps: float
   +features: dict

@@ -5,20 +5,38 @@ extension layer on [NautilusTrader](https://nautilustrader.io/) 1.229+ (develop 
 
 NautilusTrader owns the event loop, subscriptions, instruments, greeks, orders, fills, portfolio,
 and backtest replay. This layer owns only what NT lacks: multi-strategy allocation, greek
-*policy*, regime/session context, human approval, subscription *planning*, and learning attribution.
+*policy*, regime/session context, human approval, subscription *planning*, venue adapter wiring,
+and learning attribution.
 
-**Primary asset class:** US equity index 0DTE (SPX/SPY via Interactive Brokers). Crypto options
-(Deribit/OKX/Bybit) are a secondary venue path.
+**Primary asset class:** **crypto 0DTE options** (BTC/ETH via **Deribit** first). **Interactive
+Brokers** equity index 0DTE (SPX/SPY) is the secondary venue path.
+
+**Venue priority:** Deribit → IB → (later) OKX/Bybit; Binance for perp hedge only; Derive out of
+scope until NT adapter is stable.
+
+## Implementation status
+
+Phases 1–3 delivered a **venue-agnostic core** (gates, actors, FSM, journal, reference strategy)
+on an SPY catalog scaffold. Phases 4+ pivot to Deribit-first live/backtest paths via a venue
+adapter registry — see [implementation plan](../../.cursor/plans/0dte_implementation_plan_5c4f2990.plan.md).
+
+| Layer | Status | Notes |
+| --- | --- | --- |
+| Gates, journal, FSM, actors | Delivered | No venue-specific logic |
+| Factory / adapters | IB-only today | Phase 4: `node/adapters/` registry |
+| Reference strategy spreads | `backtest_plumbing` on SPY | Phase 5: Deribit combo `OrderList` |
+| Fees + attribution | Stubbed | Phase 6: `MakerTakerFeeModel` (Deribit) |
 
 ## Design goals
 
 1. **Match institutional 0DTE practice** — continuous cadence, chain-centric data, greek-aware risk,
    defined-risk structures, cost-aware data fidelity, PnL attribution.
 2. **Do not reinvent NautilusTrader** — use NT for matching, subscriptions, greeks, orders, and replay.
-3. **Keep the custom layer thin** — policy, TopN selection, approval routing, and learning only.
+3. **Keep the custom layer thin** — policy, TopN selection, approval routing, venue profiles, and learning only.
 4. **Live/backtest parity** — same Strategy classes and subscription model in `TradingNode` and
    `BacktestNode`, fed from the NT catalog.
-5. **Document before build** — all `docs/design/` artifacts reflect v2 before any code is written.
+5. **Venue logic in config + adapters** — gates, FSM, and journal stay venue-agnostic; spreads,
+   session calendar, and fee schedules vary per venue profile.
 
 ## Design non-goals
 
@@ -28,11 +46,13 @@ and backtest replay. This layer owns only what NT lacks: multi-strategy allocati
 - Sub-second market making or HFT-style quoting
 - Full stochastic vol engines, dealer-gamma/OI pin models, or ML calibration (deferred)
 - A Derive/on-chain adapter (not in NT 1.229)
+- Binance as an options venue (spot/perp hedge only, when needed)
 
 ## Architecture (NT-first)
 
 ```
 TradingNode.run()
+  ├── Venue adapter (Deribit | IB) — data + exec clients
   ├── SessionActor, RegimeActor, [IngestionPlannerActor]
   ├── Strategy A..N (NT Strategy subclasses)
   ├── [SelectorActor] — when N strategies compete for capital
@@ -44,6 +64,9 @@ NT engine (do not reimplement):
 ```
 
 No parallel ingestion layer. No parallel greek book. No hourly scheduler driving the live loop.
+
+Venue-specific spread construction lives in `strategies/selectors/` (Deribit combo vs IB BAG) —
+not in gates or the FSM.
 
 ## Two control loops
 
@@ -59,6 +82,7 @@ Use NT directly — do not rebuild.
 | Concern | NT API / type | Custom-only? |
 | --- | --- | --- |
 | Live loop | `TradingNode`, `Actor`, `Strategy` | No |
+| Venue connectivity | NT adapter factories (Deribit, IB, …) | **Thin wiring** — `node/adapters/` registry |
 | Option chain | `subscribe_option_chain()`, `on_option_chain()`, `OptionChainSlice` | No |
 | Per-leg greeks | `OptionGreeks`, `subscribe_option_greeks()`, `on_option_greeks()` | No |
 | Portfolio greeks | `GreeksCalculator.portfolio_greeks()` → `PortfolioGreeks` | No |
@@ -71,7 +95,7 @@ Use NT directly — do not rebuild.
 | Backtest parity | `BacktestNode` + catalog | No |
 | Greek *policy* | — | **Yes** — `RiskPolicy` in Strategy before submit |
 | Trade intent / gates | — | **Yes** — `TradeIntent` with edge, liquidity, regime fields |
-| Session / blackout | — | **Yes** — `SessionActor` |
+| Session / blackout | — | **Yes** — `SessionActor` (config-driven expiry calendar) |
 | Regime tags | — | **Yes** — `RegimeActor` |
 | TopN / diversification | — | **Yes** — `SelectorActor` + `DiversificationPolicy` |
 | Subscription planning | — | **Yes** — `IngestionPlannerActor` (optional) |
@@ -89,7 +113,7 @@ Every entry passes **all** gates; default state is **no trade**.
 | Liquidity | Chain slice quotes | `TradeIntent.liquidity_score`, spread width, depth |
 | Regime | `RegimeActor` | `TradeIntent.regime_tag` |
 | Session | `SessionActor` | Blackout windows, minutes-to-expiry, event flags |
-| Greek | `GreeksCalculator` + `RiskPolicy` | `portfolio_greeks()` + scenario shocks |
+| Greek | `GreeksCalculator` + `RiskPolicy` | `portfolio_greeks()` + scenario shocks; venue-streamed leg greeks on Deribit |
 | Operational | NT + config | Trading state, margin, feed health |
 | Basic pre-trade | NT `RiskEngine` | Notional, rate limits, qty/price validation |
 
@@ -100,7 +124,7 @@ Every entry passes **all** gates; default state is **no trade**.
 | **NT `RiskEngine`** | Hard engine checks on every order | Max notional, order rate, qty/price bounds, trading state |
 | **Custom `RiskPolicy`** | Greek and desk rules in Strategy before submit | max_net_delta, max_net_gamma, max_daily_loss, max_concentration_per_strike |
 | **`GreeksCalculator`** | Compute current and projected greeks + scenario shocks | `spot_shock=±0.01`, `vol_shock=0.10` |
-| **Post-entry** | Continuous monitoring in Strategy handlers | Delta band breach → hedge; time stop → flatten |
+| **Post-entry** | Continuous monitoring in Strategy handlers | Delta band breach → hedge (perp on Deribit); time stop → flatten |
 
 NT `RiskEngine` is always on. Custom greek policy is an additional gate, not a replacement.
 
@@ -108,21 +132,25 @@ NT `RiskEngine` is always on. Custom greek policy is an additional gate, not a r
 
 | Venue | NT adapter | 0DTE role | Notes |
 | --- | --- | --- | --- |
-| **Interactive Brokers** | Yes | **Primary** — SPX/SPY equity 0DTE | Chain build, BAG spreads, local greeks via calculator; no venue-streamed greeks |
-| **Deribit / OKX / Bybit** | Yes | Secondary — crypto options 0DTE | Venue-streamed `OptionGreeks`, IV orders, combos |
-| **Binance** | Yes | Spot/perp hedging only | Not US equity options |
-| **Derive** | In beta (1.229) | Not supported in v2 | Drop until adapter is stable |
+| **Deribit** | Yes | **Primary** — BTC/ETH crypto options 0DTE | Venue-streamed `OptionGreeks`, combos/IV orders; WARM 30–60s |
+| **Interactive Brokers** | Yes | Secondary — SPX/SPY equity 0DTE | BAG spreads, local greeks via calculator; WARM 60s+ |
+| **OKX / Bybit** | Yes | Later — crypto options 0DTE | Same pattern as Deribit after primary path proven |
+| **Binance** | Yes | Later — spot/perp hedging only | Not an options venue |
+| **Derive** | In beta (1.229) | Not supported in v2 | Out of scope until adapter is stable |
+
+Default operator profile: `configs/profiles/paper_btc.yaml` (Deribit). IB profile:
+`configs/profiles/paper_spy.yaml` (secondary).
 
 ## Data fidelity tiers
 
 HOT/WARM/COLD map to NT subscriptions — not custom fetch. See [ingestion-tiers.md](ingestion-tiers.md)
 for defaults per venue and subscription profile.
 
-| Tier | NT mechanism | Default use |
+| Tier | NT mechanism | Default use (Deribit) |
 | --- | --- | --- |
-| **HOT** | `subscribe_quote_ticks(underlying)`; raw chain or per-leg greeks | Underlying + open position legs |
-| **WARM** | `subscribe_option_chain(snapshot_interval_ms=60_000–300_000)` | ATM ± N strikes for signal generation |
-| **COLD** | IB `build_options_chain` on demand; catalog backfill | Full chain / OI, pin research, offline analysis |
+| **HOT** | `subscribe_quote_ticks(underlying)`; per-leg `subscribe_option_greeks` | Underlying/perp + open legs (venue-streamed greeks) |
+| **WARM** | `subscribe_option_chain(snapshot_interval_ms=30_000–60_000)` | ATM ± N strikes for signal generation |
+| **COLD** | On-demand full chain; catalog backfill | Full chain / OI, pin research, offline analysis |
 
 ## Multi-strategy model
 
@@ -169,12 +197,14 @@ Each diagram is also viewable inline in VS Code with the *PlantUML* extension (A
 | Diagram element | Design element |
 | --- | --- |
 | `TradingNode` | Live/backtest orchestrator — `TradingNode.run()` |
-| `SessionActor` | Blackout windows, session phase, minutes-to-expiry |
+| Venue adapter | `node/adapters/` — Deribit or IB data + exec clients from config |
+| `SessionActor` | Blackout windows, session phase, minutes-to-expiry (daily UTC or equity close) |
 | `RegimeActor` | Rule-based chop/trend/pin_risk tags |
 | Strategy A/B/C/…N | NT `Strategy` subclasses — gates, entry/exit/hedge |
+| Structure selector | `strategies/selectors/` — Deribit combo vs IB BAG |
 | `GreeksCalculator` + `RiskPolicy` | Greek gate before submit |
 | `SelectorActor` + `DiversificationPolicy` | TopN when N strategies compete |
 | `ActorClassifier` + handlers | Human vs automation routing |
 | `LearningModule` | PnL attribution on NT fill events |
 | `Journal` | Cross-cutting audit on every gate, order, fill |
-| IB / Deribit / OKX | Primary and secondary venues (see venue matrix) |
+| Deribit / IB / OKX | Primary and secondary venues (see venue matrix) |
