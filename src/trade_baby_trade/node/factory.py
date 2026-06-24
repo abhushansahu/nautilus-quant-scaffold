@@ -13,12 +13,13 @@ from nautilus_trader.config import ImportableActorConfig, ImportableStrategyConf
 from nautilus_trader.live.config import TradingNodeConfig
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.enums import InstrumentClass
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
 from trade_baby_trade.config.schema import AppConfig
 from trade_baby_trade.journal.service import Journal
-from trade_baby_trade.models.enums import GateStage
+from trade_baby_trade.models.enums import GateStage, VenueAdapter
 from trade_baby_trade.node.adapters.registry import (
     apply_venue_client_wiring,
     build_venue_client_wiring,
@@ -56,14 +57,21 @@ def _reference_strategy_config(config: AppConfig) -> dict:
     return {
         **_gate_strategy_config(config),
         "dry_run": config.dry_run,
+        "venue_adapter": config.venue.adapter.value,
         "max_chain_snapshot_age_secs": config.operational.max_chain_snapshot_age_secs,
         "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
         "backtest_plumbing": config.reference.backtest_plumbing,
+        "structure_selector": config.reference.structure_selector,
         "option_series_id": config.reference.option_series_id,
+        "option_series_expiry": config.reference.option_series_expiry,
+        "option_series_expiry_time_utc": config.reference.option_series_expiry_time_utc,
+        "settlement_currency": config.reference.settlement_currency,
         "strike_width": config.reference.strike_width,
         "order_qty": config.reference.order_qty,
         "take_profit_pct": config.reference.take_profit_pct,
         "stop_loss_pct": config.reference.stop_loss_pct,
+        "hedge_perp_instrument": config.reference.hedge_perp_instrument,
+        "hedge_delta_band": config.reference.hedge_delta_band,
     }
 
 
@@ -120,6 +128,64 @@ def _catalog_time_bounds(catalog_path: Path, instrument_id: InstrumentId) -> tup
     return ticks[0].ts_event, ticks[-1].ts_event
 
 
+def _backtest_data_configs(
+    config: AppConfig,
+    catalog_path: Path,
+    instrument_id: InstrumentId,
+    start_time: int,
+    end_time: int,
+) -> list[BacktestDataConfig]:
+    """Build BacktestDataConfig entries for catalog contents."""
+    catalog = ParquetDataCatalog(str(catalog_path))
+    data_types = set(catalog.list_data_types())
+    use_deribit_chain = (
+        config.venue.adapter is VenueAdapter.DERIBIT
+        and not config.reference.backtest_plumbing
+        and "option_greeks" in data_types
+    )
+
+    if not use_deribit_chain:
+        return [
+            BacktestDataConfig(
+                catalog_path=str(catalog_path),
+                catalog_fs_protocol="file",
+                data_cls=QuoteTick,
+                instrument_id=instrument_id,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        ]
+
+    quote_ids = [str(inst.id) for inst in catalog.instruments()]
+    configs = [
+        BacktestDataConfig(
+            catalog_path=str(catalog_path),
+            catalog_fs_protocol="file",
+            data_cls=QuoteTick,
+            instrument_ids=quote_ids,
+            start_time=start_time,
+            end_time=end_time,
+        )
+    ]
+    option_ids = [
+        str(inst.id)
+        for inst in catalog.instruments()
+        if inst.instrument_class == InstrumentClass.OPTION
+    ]
+    if option_ids:
+        configs.append(
+            BacktestDataConfig(
+                catalog_path=str(catalog_path),
+                catalog_fs_protocol="file",
+                data_cls="nautilus_trader.model.data:OptionGreeks",
+                instrument_ids=option_ids,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        )
+    return configs
+
+
 def _backtest_venue_config(config: AppConfig) -> BacktestVenueConfig:
     currency = config.venue.base_currency
     return BacktestVenueConfig(
@@ -144,18 +210,11 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
         strategies=[_strategy_config(config, journal_path)],
         logging=LoggingConfig(bypass_logging=True),
     )
-    data_config = BacktestDataConfig(
-        catalog_path=str(catalog),
-        catalog_fs_protocol="file",
-        data_cls=QuoteTick,
-        instrument_id=instrument_id,
-        start_time=start_time,
-        end_time=end_time,
-    )
+    data_config = _backtest_data_configs(config, catalog, instrument_id, start_time, end_time)
     run_config = BacktestRunConfig(
         engine=engine_config,
         venues=[_backtest_venue_config(config)],
-        data=[data_config],
+        data=data_config,
     )
     return BacktestNode(configs=[run_config])
 

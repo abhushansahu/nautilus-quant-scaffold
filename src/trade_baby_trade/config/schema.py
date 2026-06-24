@@ -67,11 +67,17 @@ class InteractiveBrokersConfig(BaseModel):
 
 class ReferenceStrategyConfig(BaseModel):
     backtest_plumbing: bool = False
+    structure_selector: str = "auto"
     option_series_id: str | None = None
+    option_series_expiry: str | None = None
+    option_series_expiry_time_utc: str = "08:00"
+    settlement_currency: str = "BTC"
     strike_width: int = 5
-    order_qty: int = 1
+    order_qty: float = 1.0
     take_profit_pct: float = 0.25
     stop_loss_pct: float = 0.50
+    hedge_perp_instrument: str | None = None
+    hedge_delta_band: float = 0.30
 
 
 class AppConfig(BaseModel):

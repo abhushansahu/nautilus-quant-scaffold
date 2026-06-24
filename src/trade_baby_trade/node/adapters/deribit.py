@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from nautilus_trader.common.config import InstrumentProviderConfig
+
 from trade_baby_trade.config.schema import AppConfig
 from trade_baby_trade.node.adapters.registry import VenueClientWiring
 
@@ -16,6 +18,14 @@ def _resolve_api_credentials(config: AppConfig) -> tuple[str | None, str | None]
     return api_key, api_secret
 
 
+def _deribit_load_ids(config: AppConfig) -> frozenset[str]:
+    """Instrument ids to eagerly load at node start."""
+    load_ids: set[str] = {config.strategy.underlying}
+    if config.reference.hedge_perp_instrument:
+        load_ids.add(config.reference.hedge_perp_instrument)
+    return frozenset(load_ids)
+
+
 def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiring:
     """Build Deribit live data and execution client wiring."""
     from nautilus_trader.adapters.deribit import DERIBIT
@@ -27,7 +37,6 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         DeribitLiveDataClientFactory,
         DeribitLiveExecClientFactory,
     )
-    from nautilus_trader.common.config import InstrumentProviderConfig
     from nautilus_trader.core.nautilus_pyo3.deribit import DeribitEnvironment, DeribitProductType
 
     environment = (
@@ -41,8 +50,19 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         )
         raise ValueError(msg)
 
-    instrument_provider = InstrumentProviderConfig(load_all=False, load_ids=frozenset())
-    client_kwargs = {
+    instrument_provider = InstrumentProviderConfig(
+        load_all=False,
+        load_ids=_deribit_load_ids(config),
+    )
+    data_kwargs = {
+        "api_key": api_key,
+        "api_secret": api_secret,
+        "environment": environment,
+        "product_types": (DeribitProductType.OPTION, DeribitProductType.FUTURE),
+        "instrument_provider": instrument_provider,
+        "auto_load_missing_instruments": True,
+    }
+    exec_kwargs = {
         "api_key": api_key,
         "api_secret": api_secret,
         "environment": environment,
@@ -50,8 +70,8 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         "instrument_provider": instrument_provider,
     }
     return VenueClientWiring(
-        data_clients={DERIBIT: DeribitDataClientConfig(**client_kwargs)},
-        exec_clients={DERIBIT: DeribitExecClientConfig(**client_kwargs)},
+        data_clients={DERIBIT: DeribitDataClientConfig(**data_kwargs)},
+        exec_clients={DERIBIT: DeribitExecClientConfig(**exec_kwargs)},
         data_client_factories={DERIBIT: DeribitLiveDataClientFactory},
         exec_client_factories={DERIBIT: DeribitLiveExecClientFactory},
     )

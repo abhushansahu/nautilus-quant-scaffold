@@ -1,0 +1,48 @@
+# Backtest profile — Deribit BTC 0DTE reference strategy on catalog_deribit fixture
+
+trader_id: BACKTEST-BTC-001
+
+venue:
+  name: DERIBIT
+  adapter: DERIBIT
+  base_currency: USD
+  account_type: MARGIN
+
+strategy:
+  strategy_id: reference-001
+  strategy_class: reference
+  underlying: BTC-PERPETUAL.DERIBIT
+
+reference:
+  structure_selector: deribit
+  option_series_id: BTC
+  option_series_expiry: "2026-05-19"
+  settlement_currency: BTC
+  strike_width: 5000
+  order_qty: 0.1
+  hedge_perp_instrument: BTC-PERPETUAL.DERIBIT
+  hedge_delta_band: 0.30
+
+subscriptions:
+  chain_snapshot_interval_ms: 1000
+
+session:
+  expiry_mode: daily_utc
+  blackout_minutes_before_close: 30
+  market_close_utc: "08:00"
+
+operational:
+  require_chain_snapshot: true
+  max_chain_snapshot_age_secs: 120
+
+gates:
+  min_edge_after_cost_bps: -5000.0  # synthetic fixture has wide spreads vs intrinsic
+  min_liquidity_score: 0.0
+
+regime:
+  blocked_regimes: []
+
+journal:
+  path: runs/latest.jsonl
+
+dry_run: false
