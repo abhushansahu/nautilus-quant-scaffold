@@ -1,5 +1,5 @@
 @startuml concurrency-activity
-title trade_baby_trade — Concurrency Model (live NT loop + offline research)
+title nautilus_zerodte — Concurrency Model (live NT loop + offline research)
 
 skinparam conditionStyle inside
 

@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from trade_baby_trade.actors.data_types import RegimeTagSnapshot, SessionPhaseSnapshot
-from trade_baby_trade.gates.context import GateContext
-from trade_baby_trade.models.enums import RegimeTag, StrategyState
-from trade_baby_trade.models.risk import RiskPolicy
-from trade_baby_trade.strategies.context import ChainEvaluationContext
-from trade_baby_trade.strategies.reference import (
+from nautilus_zerodte.actors.data_types import RegimeTagSnapshot, SessionPhaseSnapshot
+from nautilus_zerodte.gates.context import GateContext
+from nautilus_zerodte.models.enums import RegimeTag, StrategyState
+from nautilus_zerodte.models.risk import RiskPolicy
+from nautilus_zerodte.strategies.context import ChainEvaluationContext
+from nautilus_zerodte.strategies.reference import (
     ReferenceZeroDteStrategy,
     ReferenceZeroDteStrategyConfig,
 )

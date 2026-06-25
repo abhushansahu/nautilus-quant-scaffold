@@ -1,5 +1,5 @@
 @startuml class-diagram
-title trade_baby_trade — Class Diagram (NT-first extension layer)
+title nautilus_zerodte — Class Diagram (NT-first extension layer)
 
 hide empty members
 skinparam classAttributeIconSize 0
@@ -20,7 +20,7 @@ package "nautilus_trader (engine)" <<Frame>> {
   class "Actor (nt)" as NTActor
 }
 
-package "trade_baby_trade.node.adapters" <<Frame>> #LightYellow {
+package "nautilus_zerodte.node.adapters" <<Frame>> #LightYellow {
   class VenueAdapterRegistry {
     +attach_clients(node, config): void
   }

@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from trade_baby_trade.journal.service import Journal
-from trade_baby_trade.models.enums import GateStage
+from nautilus_zerodte.journal.service import Journal
+from nautilus_zerodte.models.enums import GateStage
 
 
 def test_journal_record_and_persist(tmp_path: Path) -> None:

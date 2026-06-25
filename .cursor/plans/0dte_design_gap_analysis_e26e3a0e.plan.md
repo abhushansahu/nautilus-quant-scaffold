@@ -107,7 +107,7 @@ flowchart TB
     OE[OrderEmulator]
   end
 
-  subgraph ext [trade_baby_trade — custom only]
+  subgraph ext [nautilus_zerodte — custom only]
     SA[SessionActor]
     RA[RegimeActor]
     IP[IngestionPlannerActor optional]

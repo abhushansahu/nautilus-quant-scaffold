@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from trade_baby_trade.strategies.selectors.deribit import (
+from nautilus_zerodte.strategies.selectors.deribit import (
     DeribitStructureSelector,
     _edge_after_cost_bps,
     _strike_price,

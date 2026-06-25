@@ -1,8 +1,8 @@
 ---
-description: Minimal project standards for trade_baby_trade.
+description: Minimal project standards for nautilus-zerodte.
 alwaysApply: true
 ---
-# trade_baby_trade
+# nautilus-zerodte
 
 - Python 3.14+, managed with `uv` (`pyproject.toml` + `uv lock`).
 - NautilusTrader is the trading engine — do not re-implement matching, order books, or event loops.

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trade_baby_trade.config.loader import load_config
-from trade_baby_trade.config.schema import AppConfig
-from trade_baby_trade.models.enums import VenueAdapter
+from nautilus_zerodte.config.loader import load_config
+from nautilus_zerodte.config.schema import AppConfig
+from nautilus_zerodte.models.enums import VenueAdapter
 
 
 def test_load_paper_spy_profile() -> None:

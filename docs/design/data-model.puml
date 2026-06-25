@@ -1,5 +1,5 @@
 @startuml data-model
-title trade_baby_trade — Custom Data Model (NT types referenced, not duplicated)
+title nautilus_zerodte — Custom Data Model (NT types referenced, not duplicated)
 
 hide empty members
 skinparam classAttributeIconSize 0

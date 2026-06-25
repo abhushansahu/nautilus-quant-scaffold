@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from nautilus_trader.adapters.deribit import DERIBIT
 
-from trade_baby_trade.config.schema import AppConfig
-from trade_baby_trade.models.enums import VenueAdapter
-from trade_baby_trade.node.adapters.registry import build_venue_client_wiring, resolve_venue_adapter
+from nautilus_zerodte.config.schema import AppConfig
+from nautilus_zerodte.models.enums import VenueAdapter
+from nautilus_zerodte.node.adapters.registry import build_venue_client_wiring, resolve_venue_adapter
 
 
 def test_resolve_venue_adapter_deribit() -> None:

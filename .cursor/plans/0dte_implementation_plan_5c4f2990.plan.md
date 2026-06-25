@@ -119,7 +119,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  subgraph shared [trade_baby_trade — shared code]
+  subgraph shared [nautilus_zerodte — shared code]
     Models[models: TradeIntent RiskPolicy Journal]
     Gates[gates: pure pre-greek + RiskPolicy.check]
     Actors[SessionActor RegimeActor]
@@ -194,7 +194,7 @@ Default: **no trade** until all checks pass. Each failure → `Journal.record(Ga
 Introduce a standard `src/` layout and register the package in [`pyproject.toml`](pyproject.toml):
 
 ```
-src/trade_baby_trade/
+src/nautilus_zerodte/
   __init__.py
   models/           # Pydantic value objects from data-model.puml
     enums.py
@@ -262,7 +262,7 @@ docs/
     learning-attribution.md # Phase 4 spike — theta/gamma/vega decomposition + commission/slippage vs edge
 ```
 
-**Naming:** Python package `trade_baby_trade` (underscore); CLI entry `trade-baby-trade`.
+**Naming:** Python package `nautilus_zerodte` (underscore); CLI entry `nautilus-zerodte`.
 
 ### Config layering (persona-friendly)
 
@@ -338,7 +338,7 @@ Optional Phase 4 refactor: extract `JournalActor` on MessageBus when SelectorAct
 
 ### 1.6 Node factory (dual-node, stubs)
 
-[`node/factory.py`](src/trade_baby_trade/node/factory.py) exposes:
+[`node/factory.py`](src/nautilus_zerodte/node/factory.py) exposes:
 
 - `build_backtest_node(config, catalog_path) -> BacktestNode`
 - `build_trading_node(config) -> TradingNode` — IB adapter config from env
@@ -356,15 +356,15 @@ Factory contract is stable: Phases 2–3 swap stubs for real actors/strategies w
 ### 1.7 CLI skeleton + operator affordances
 
 ```bash
-trade-baby-trade backtest --config configs/profiles/paper_spy.yaml --catalog tests/fixtures/catalog
-trade-baby-trade paper   --config configs/profiles/paper_spy.yaml   # reads IB_* from env
-trade-baby-trade backtest ... --dry-run   # evaluate only; no order submit (wired in Phase 3; flag accepted in Phase 1)
-trade-baby-trade journal summary --path runs/latest.jsonl   # gate rejection counts, last events (Phase 1: lifecycle only; expands each phase)
+nautilus-zerodte backtest --config configs/profiles/paper_spy.yaml --catalog tests/fixtures/catalog
+nautilus-zerodte paper   --config configs/profiles/paper_spy.yaml   # reads IB_* from env
+nautilus-zerodte backtest ... --dry-run   # evaluate only; no order submit (wired in Phase 3; flag accepted in Phase 1)
+nautilus-zerodte journal summary --path runs/latest.jsonl   # gate rejection counts, last events (Phase 1: lifecycle only; expands each phase)
 ```
 
 Phase 1: `--dry-run` flag parsed and passed to config; skeleton ignores it. Phase 3: strategy respects it (journal intent, skip submit).
 
-**Kill switch (stub in Phase 1, real in Phase 3):** Document `trade-baby-trade flatten --config ...` as future emergency flatten-all; Phase 1 CLI prints "not yet implemented" or no-ops with journal entry.
+**Kill switch (stub in Phase 1, real in Phase 3):** Document `nautilus-zerodte flatten --config ...` as future emergency flatten-all; Phase 1 CLI prints "not yet implemented" or no-ops with journal entry.
 
 ---
 
@@ -395,7 +395,7 @@ Rule-based tags: `CHOP`, `TREND`, `PIN_RISK`, `UNKNOWN` — simple rules on unde
 
 Register in node factory alongside SessionActor.
 
-### 2.3 Pure gate evaluator ([`gates/evaluator.py`](src/trade_baby_trade/gates/evaluator.py))
+### 2.3 Pure gate evaluator ([`gates/evaluator.py`](src/nautilus_zerodte/gates/evaluator.py))
 
 **`evaluate_pre_greek(intent, context) -> GateResult`** — pure pipeline:
 
@@ -431,7 +431,7 @@ Before full reference strategy, extend skeleton or add `GatedSkeletonStrategy` t
 
 **Vertical slice proof:** Backtest JSONL trail: `EDGE`…`GREEK` pass → `ORDER_SUBMIT` → `FILL` → `PNL` (realized from NT Portfolio).
 
-### 3.1 BaseZeroDteStrategy ([`strategies/base.py`](src/trade_baby_trade/strategies/base.py))
+### 3.1 BaseZeroDteStrategy ([`strategies/base.py`](src/nautilus_zerodte/strategies/base.py))
 
 NT `Strategy` subclass implementing per-strategy FSM ([`state-diagram.puml`](docs/design/state-diagram.puml)):
 
@@ -523,11 +523,11 @@ Manual (Phase 3): SPY catalog backtest only. Deribit testnet paper → Phase 5. 
 
 **Goal:** Introduce venue adapter registry and crypto-first config profiles **without changing gate/FSM/journal behavior**. SPY backtest profile continues to work; new default operator path is Deribit-oriented.
 
-**Vertical slice proof:** `trade-baby-trade paper --config configs/profiles/paper_btc.yaml --dry-run` builds `TradingNode` with Deribit adapter config (no live orders in CI); `backtest` still passes on legacy SPY catalog.
+**Vertical slice proof:** `nautilus-zerodte paper --config configs/profiles/paper_btc.yaml --dry-run` builds `TradingNode` with Deribit adapter config (no live orders in CI); `backtest` still passes on legacy SPY catalog.
 
 ### 4.1 Venue adapter registry
 
-Refactor [`node/factory.py`](src/trade_baby_trade/node/factory.py):
+Refactor [`node/factory.py`](src/nautilus_zerodte/node/factory.py):
 
 - Add `node/adapters/` with `_attach_deribit_clients()` and move existing IB logic to `_attach_ib_clients()`
 - Select adapter via `config.venue.adapter` (`DERIBIT` | `IB`); fail closed on unknown adapter
@@ -536,7 +536,7 @@ Refactor [`node/factory.py`](src/trade_baby_trade/node/factory.py):
 
 ### 4.2 Config schema + profiles
 
-Extend [`config/schema.py`](src/trade_baby_trade/config/schema.py):
+Extend [`config/schema.py`](src/nautilus_zerodte/config/schema.py):
 
 | Model | Fields | Notes |
 | --- | --- | --- |
@@ -733,7 +733,7 @@ Add `strategies/selectors/ib.py`:
 
 Phases 1–5 deliver **synthetic committed** Parquet fixtures (`tests/fixtures/catalog*`) for deterministic CI. Phase 9 adds an **optional operator path** to capture real paper/live sessions into replayable catalogs.
 
-**Vertical slice proof:** `trade-baby-trade paper --config configs/profiles/paper_btc.yaml --streaming` (Deribit testnet) → stop → `trade-baby-trade catalog convert --run-id <id>` → `trade-baby-trade backtest --catalog data/catalogs/<id>` replays the same strategy with journal trail.
+**Vertical slice proof:** `nautilus-zerodte paper --config configs/profiles/paper_btc.yaml --streaming` (Deribit testnet) → stop → `nautilus-zerodte catalog convert --run-id <id>` → `nautilus-zerodte backtest --catalog data/catalogs/<id>` replays the same strategy with journal trail.
 
 #### Responsibilities (do not conflate)
 
@@ -816,8 +816,8 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 | Integration | Full gate → order → fill journal trail (SPY legacy) | Phase 3 ✓ |
 | Integration | Deribit catalog gate → spread → fill → PnL | Phase 5 |
 | Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phases 1–4+ |
-| Manual | `trade-baby-trade paper` against Deribit testnet | After Phase 5 |
-| Manual | `trade-baby-trade paper` against IB paper | After Phase 8 |
+| Manual | `nautilus-zerodte paper` against Deribit testnet | After Phase 5 |
+| Manual | `nautilus-zerodte paper` against IB paper | After Phase 8 |
 | Manual | `paper --streaming` → `catalog convert` → `backtest` replay on captured run | Phase 9 |
 
 Per [`.cursor/rules/agent.mdc`](.cursor/rules/agent.mdc): add tests when adding behavior, not upfront scaffolding tests.
@@ -853,11 +853,11 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 ## Key files — next up (Phase 4 order)
 
 1. [`docs/design/README.md`](docs/design/README.md) — flip venue priority (Deribit primary)
-2. [`src/trade_baby_trade/node/adapters/`](src/trade_baby_trade/node/adapters/) — registry + deribit + ib modules
-3. [`src/trade_baby_trade/config/schema.py`](src/trade_baby_trade/config/schema.py) — `DeribitConfig`, venue-aware `VenueConfig`
+2. [`src/nautilus_zerodte/node/adapters/`](src/nautilus_zerodte/node/adapters/) — registry + deribit + ib modules
+3. [`src/nautilus_zerodte/config/schema.py`](src/nautilus_zerodte/config/schema.py) — `DeribitConfig`, venue-aware `VenueConfig`
 4. [`configs/session/crypto_deribit.yaml`](configs/session/crypto_deribit.yaml) — daily expiry blackout
 5. [`configs/profiles/paper_btc.yaml`](configs/profiles/paper_btc.yaml) — default operator profile
-6. [`src/trade_baby_trade/node/factory.py`](src/trade_baby_trade/node/factory.py) — delegate to adapter registry
+6. [`src/nautilus_zerodte/node/factory.py`](src/nautilus_zerodte/node/factory.py) — delegate to adapter registry
 7. [`pyproject.toml`](pyproject.toml) — `nautilus-trader[deribit]` extra
 8. [`.env.example`](.env.example) — `DERIBIT_API_KEY`, `DERIBIT_API_SECRET`, `DERIBIT_TESTNET`
 
@@ -867,12 +867,12 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 
 1. [`pyproject.toml`](pyproject.toml) — package config + dev deps
 2. [`tests/fixtures/catalog/`](tests/fixtures/catalog/) — minimal catalog or download README
-3. [`src/trade_baby_trade/models/`](src/trade_baby_trade/models/) — data model
-4. [`src/trade_baby_trade/journal/service.py`](src/trade_baby_trade/journal/service.py) — in-memory + JSONL
-5. [`src/trade_baby_trade/config/loader.py`](src/trade_baby_trade/config/loader.py) — layered YAML
+3. [`src/nautilus_zerodte/models/`](src/nautilus_zerodte/models/) — data model
+4. [`src/nautilus_zerodte/journal/service.py`](src/nautilus_zerodte/journal/service.py) — in-memory + JSONL
+5. [`src/nautilus_zerodte/config/loader.py`](src/nautilus_zerodte/config/loader.py) — layered YAML
 6. [`configs/profiles/paper_spy.yaml`](configs/profiles/paper_spy.yaml) — default profile
-7. [`src/trade_baby_trade/node/factory.py`](src/trade_baby_trade/node/factory.py) — dual-node + skeleton strategy
-8. [`src/trade_baby_trade/cli/main.py`](src/trade_baby_trade/cli/main.py) — backtest, paper, journal summary
+7. [`src/nautilus_zerodte/node/factory.py`](src/nautilus_zerodte/node/factory.py) — dual-node + skeleton strategy
+8. [`src/nautilus_zerodte/cli/main.py`](src/nautilus_zerodte/cli/main.py) — backtest, paper, journal summary
 9. [`docs/implementation/gate-boundary.md`](docs/implementation/gate-boundary.md) — stub ADR before Phase 2 gate work
 
 ---
@@ -885,7 +885,7 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 
 | Area | Path | Notes |
 | --- | --- | --- |
-| Package | `src/trade_baby_trade/` | hatch wheel, CLI entry `trade-baby-trade` |
+| Package | `src/nautilus_zerodte/` | hatch wheel, CLI entry `nautilus-zerodte` |
 | Models | `models/` | Pydantic v2; `GateStage.LIFECYCLE/FILL/PNL` added |
 | Journal | `journal/service.py` | in-memory + JSONL append |
 | Config | `config/loader.py`, `configs/` | layered YAML merge + env overlay |

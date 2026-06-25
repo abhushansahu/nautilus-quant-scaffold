@@ -1,5 +1,5 @@
 @startuml sequence-diagram
-title trade_baby_trade — Sequence Diagram (live 0DTE flow — Deribit primary)
+title nautilus_zerodte — Sequence Diagram (live 0DTE flow — Deribit primary)
 
 skinparam sequenceMessageAlign center
 autonumber

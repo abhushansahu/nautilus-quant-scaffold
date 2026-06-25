@@ -1,4 +1,4 @@
-# Design — trade_baby_trade
+# Design — nautilus-zerodte
 
 NT-first architecture for **institutional-grade 0DTE / near-expiry options trading** as a thin
 extension layer on [NautilusTrader](https://nautilustrader.io/) 1.229+ (develop channel).

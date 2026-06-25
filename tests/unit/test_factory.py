@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from trade_baby_trade.config.schema import AppConfig
-from trade_baby_trade.node.factory import _strategy_config
+from nautilus_zerodte.config.schema import AppConfig
+from nautilus_zerodte.node.factory import _strategy_config
 
 
 def test_unknown_strategy_class_gets_gated_skeleton_config() -> None:

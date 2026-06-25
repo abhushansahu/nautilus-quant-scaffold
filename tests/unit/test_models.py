@@ -3,10 +3,10 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import uuid4
 
-from trade_baby_trade.models.enums import GateStage, RegimeTag
-from trade_baby_trade.models.journal import JournalEntry
-from trade_baby_trade.models.risk import RiskPolicy
-from trade_baby_trade.models.trade_intent import TradeIntent
+from nautilus_zerodte.models.enums import GateStage, RegimeTag
+from nautilus_zerodte.models.journal import JournalEntry
+from nautilus_zerodte.models.risk import RiskPolicy
+from nautilus_zerodte.models.trade_intent import TradeIntent
 
 
 def test_trade_intent_defaults() -> None:

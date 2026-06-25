@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from trade_baby_trade.actors.data_types import RegimeTagSnapshot, SessionPhaseSnapshot
-from trade_baby_trade.models.enums import RegimeTag
-from trade_baby_trade.strategies.gated_skeleton import (
+from nautilus_zerodte.actors.data_types import RegimeTagSnapshot, SessionPhaseSnapshot
+from nautilus_zerodte.models.enums import RegimeTag
+from nautilus_zerodte.strategies.gated_skeleton import (
     GatedSkeletonStrategy,
     GatedSkeletonStrategyConfig,
 )

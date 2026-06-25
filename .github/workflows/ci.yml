@@ -22,7 +22,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Smoke import
-        run: uv run python -c "import nautilus_trader; import trade_baby_trade; print('ok')"
+        run: uv run python -c "import nautilus_trader; import nautilus_zerodte; print('ok')"
 
       - name: Lint
         run: uv run ruff check src tests

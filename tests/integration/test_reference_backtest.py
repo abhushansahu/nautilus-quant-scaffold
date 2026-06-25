@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from trade_baby_trade.config.loader import load_config
-from trade_baby_trade.journal.service import Journal
-from trade_baby_trade.models.enums import GateStage
-from trade_baby_trade.node.factory import run_backtest
+from nautilus_zerodte.config.loader import load_config
+from nautilus_zerodte.journal.service import Journal
+from nautilus_zerodte.models.enums import GateStage
+from nautilus_zerodte.node.factory import run_backtest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "tests" / "fixtures" / "catalog"

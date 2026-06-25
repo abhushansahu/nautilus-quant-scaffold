@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from nautilus_trader.adapters.deribit import DERIBIT
 
-from trade_baby_trade.config.loader import load_config
-from trade_baby_trade.journal.service import Journal
-from trade_baby_trade.node.factory import build_backtest_node, build_trading_node, run_backtest
+from nautilus_zerodte.config.loader import load_config
+from nautilus_zerodte.journal.service import Journal
+from nautilus_zerodte.node.factory import build_backtest_node, build_trading_node, run_backtest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "tests" / "fixtures" / "catalog"

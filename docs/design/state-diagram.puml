@@ -1,5 +1,5 @@
 @startuml state-diagram
-title trade_baby_trade — State Diagram (per-strategy lifecycle + SessionActor)
+title nautilus_zerodte — State Diagram (per-strategy lifecycle + SessionActor)
 
 [*] --> Flat
 

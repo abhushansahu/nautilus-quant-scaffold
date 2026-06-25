@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from trade_baby_trade.actors.regime import compute_regime_tag
-from trade_baby_trade.actors.session import (
+from nautilus_zerodte.actors.regime import compute_regime_tag
+from nautilus_zerodte.actors.session import (
     minutes_to_close,
     parse_close_time,
     session_allows_entry,
     session_phase_label,
 )
-from trade_baby_trade.models.enums import RegimeTag
+from nautilus_zerodte.models.enums import RegimeTag
 
 
 def test_session_allows_entry_outside_blackout() -> None:
