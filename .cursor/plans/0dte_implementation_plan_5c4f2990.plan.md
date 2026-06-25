@@ -1,6 +1,6 @@
 ---
 name: 0DTE Implementation Plan
-overview: "NT-first 0DTE options extension layer. Primary goal: trade crypto 0DTE options (Deribit first), IB equity 0DTE second. Phases 1–3 delivered a venue-agnostic core (gates, FSM, journal). Phases 4+ pivot to venue adapter registry, Deribit live/backtest path, costs/attribution, multi-strategy, then IB as secondary venue."
+overview: "NT-first 0DTE options extension layer. Primary goal: trade crypto 0DTE options (Deribit first), IB equity 0DTE second. Phases 1–7 delivered: venue-agnostic core, Deribit path, costs/attribution, multi-strategy selector + approval. Phase 8 next: IB as secondary venue."
 todos:
   - id: scaffold-package
     content: Add src layout, pyproject (scripts + hatch), dev deps (pytest, ruff), Makefile, CI unit + backtest smoke
@@ -49,10 +49,10 @@ todos:
     status: completed
   - id: phase6-costs-attribution
     content: Deribit FeeModel + real edge_after_cost_bps; learning-attribution.md; LearningModule with commission/slippage
-    status: pending
+    status: completed
   - id: phase7-multi-strategy
     content: SelectorActor, approval handlers, DiversificationPolicy TopN; optional JournalActor refactor
-    status: pending
+    status: completed
   - id: phase8-ib-secondary
     content: IB adapter as second venue profile; BAG spread selector; ib_options fee config; paper_spy as secondary profile
     status: pending
@@ -66,7 +66,7 @@ isProject: false
 
 ## Context
 
-Design v2 in [`docs/design/`](docs/design/) is complete. **Phases 1–3 are delivered** — venue-agnostic gates, actors, FSM, journal, and reference strategy plumbing on `BacktestNode` / `TradingNode`.
+Design v2 in [`docs/design/`](docs/design/) is complete. **Phases 1–7 are delivered** — venue-agnostic gates, actors, FSM, journal, reference strategy plumbing, venue adapter registry, Deribit combo spread path, cost-aware attribution, and multi-strategy SelectorActor with approval routing on `BacktestNode` / `TradingNode`.
 
 **Primary goal:** Trade **crypto 0DTE options**. Venue priority:
 
@@ -78,18 +78,17 @@ Design v2 in [`docs/design/`](docs/design/) is complete. **Phases 1–3 are deli
 
 **Dual-node constraint (unchanged):** Shared Strategy/Actor code runs on **both** `BacktestNode` and `TradingNode`. Venue-specific logic lives in config profiles + factory adapter registry + strategy structure selectors — not in gates, journal, or FSM.
 
-### Refactoring scope (Phases 4+)
+### Refactoring scope (Phases 6+)
 
-Phases 1–3 built a **venue-agnostic core** (~80% of custom code). The crypto-first pivot is a **moderate integration refactor**, not a rewrite:
+Phases 1–5 built a **venue-agnostic core** plus **Deribit-first execution path**. Remaining work is costs/attribution, multi-strategy, and IB as secondary venue — not a rewrite:
 
-| Keep as-is | Change / add |
+| Keep as-is | Change / add (Phase 6+) |
 | --- | --- |
-| Gates, `RiskPolicy`, journal, FSM, actors (pattern) | `node/adapters/` venue registry |
-| `TradeIntent`, models, config layering | `DeribitConfig`, crypto session YAML |
-| CLI commands (`backtest`, `paper`, `journal`) | `paper_btc.yaml` as default profile |
-| Unit tests for gates/models/actors | Deribit catalog fixture + integration tests |
-| — | `strategies/selectors/` for combo vs BAG spreads |
-| — | `MakerTakerFeeModel` (Phase 6) before `FixedFeeModel` (Phase 8) |
+| Gates, `RiskPolicy`, journal, FSM, actors | `MakerTakerFeeModel` + `configs/fees/deribit_options.yaml` |
+| `TradeIntent`, models, config layering | Real `edge_after_cost_bps` aligned to fee schedule |
+| Venue adapter registry, Deribit selector, catalog | `LearningModule` + `learning-attribution.md` |
+| CLI commands (`backtest`, `paper`, `journal`) | SelectorActor + approval (Phase 7) ✓ |
+| Unit/integration tests (56 green) | IB adapter profile + BAG selector (Phase 8) |
 
 ---
 
@@ -102,10 +101,10 @@ flowchart LR
   P1[P1: foundation ✓]
   P2[P2: gates + actors ✓]
   P3[P3: FSM + reference ✓]
-  P4[P4: venue registry + crypto config]
-  P5[P5: Deribit live + spread + catalog]
-  P6[P6: fees + attribution]
-  P7[P7: multi-strategy + approval]
+  P4[P4: venue registry + crypto config ✓]
+  P5[P5: Deribit live + spread + catalog ✓]
+  P6[P6: fees + attribution ✓]
+  P7[P7: multi-strategy + approval ✓]
   P8[P8: IB secondary]
   P9[P9: streaming capture + research]
   P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9
@@ -623,7 +622,9 @@ Deliver under `tests/fixtures/catalog_deribit/`:
 
 ---
 
-## Phase 6 — Trading costs + learning attribution
+## Phase 6 — Trading costs + learning attribution ✓
+
+**Status: completed 2026-06-26.**
 
 **Goal:** Close the Phase 3 stubs for **Deribit first** — real `edge_after_cost_bps`, `FeeModel` on backtest, full `LearningModule` attribution.
 
@@ -660,7 +661,9 @@ IB `FixedFeeModel` + per-contract edge math deferred to Phase 8.
 
 ---
 
-## Phase 7 — Multi-strategy, approval, optional JournalActor
+## Phase 7 — Multi-strategy, approval, optional JournalActor ✓
+
+**Status: completed 2026-06-26.**
 
 Introduce when N > 1 strategies compete for capital — after Deribit single-strategy path is stable.
 
@@ -680,7 +683,7 @@ Introduce when N > 1 strategies compete for capital — after Deribit single-str
 
 ### 7.3 Optional: JournalActor refactor
 
-When SelectorActor fan-in complicates injected journal calls, refactor to `JournalActor` on MessageBus. Keep JSONL sink behavior identical.
+When SelectorActor fan-in complicates injected journal calls, refactor to `JournalActor` on MessageBus. Keep JSONL sink behavior identical. **Deferred** — injected `Journal` remains sufficient for Phase 7.
 
 **Vertical slice proof:** two Deribit strategies + SelectorActor TopN; `LearningRecord` on fills; human approval stub before automation.
 
@@ -796,13 +799,13 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 
 ## Persona deliverables by phase
 
-| Persona | Phases 1–3 ✓ | Phase 4 | Phase 5 | Phase 6 | Phase 7 | Phase 8 | Phase 9 |
+| Persona | Phases 1–3 ✓ | Phase 4 ✓ | Phase 5 ✓ | Phase 6 | Phase 7 | Phase 8 | Phase 9 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Coder** | Gates, FSM, reference plumbing | Venue adapter registry, crypto config | Deribit spread selector, catalog fixture | `FeeModel`, `LearningModule`, edge cost math | Selector, approval | IB selector + fees | `StreamingFeatherWriter`, `catalog convert` |
-| **Trader** | `backtest`/`paper`, JSONL audit | `paper_btc` dry-run smoke | Deribit testnet paper | Cost-aware journal attribution | Human approval path | IB paper manual | `paper --streaming`, replay captured runs |
-| **Strategy maker** | `build_intent` hooks, config-driven strategy | Crypto session + subscription profile | Real combo `OrderList` on Deribit | Real `edge_after_cost_bps` from quotes + fees | Multi-strategy configs | IB BAG spreads | Tune gates against real captured chain data |
-| **Policy maker** | `configs/risk/*.yaml`, gate journal | Crypto expiry blackout config | Deribit WARM/HOT tiers | `configs/fees/deribit_options.yaml` | TopN diversification caps | `configs/fees/ib_options.yaml` | `configs/streaming/default.yaml` tier alignment |
-| **PnL checker** | Fill + realized PnL journal | — | Spread fill trail on Deribit catalog | Full `LearningRecord` incl. commission | Multi-strategy attribution | IB fee-aligned backtest | Live vs replay parity checks on captured catalogs |
+| **Coder** | Gates, FSM, reference plumbing | Venue adapter registry, crypto config | Deribit spread selector, catalog fixture | `FeeModel`, `LearningModule`, edge cost math ✓ | Selector, approval ✓ | IB selector + fees | `StreamingFeatherWriter`, `catalog convert` |
+| **Trader** | `backtest`/`paper`, JSONL audit | `paper_btc` dry-run smoke | Deribit testnet paper | Cost-aware journal attribution ✓ | Human approval path ✓ | IB paper manual | `paper --streaming`, replay captured runs |
+| **Strategy maker** | `build_intent` hooks, config-driven strategy | Crypto session + subscription profile | Real combo `OrderList` on Deribit | Real `edge_after_cost_bps` from quotes + fees ✓ | Multi-strategy configs ✓ | IB BAG spreads | Tune gates against real captured chain data |
+| **Policy maker** | `configs/risk/*.yaml`, gate journal | Crypto expiry blackout config | Deribit WARM/HOT tiers | `configs/fees/deribit_options.yaml` ✓ | TopN diversification caps ✓ | `configs/fees/ib_options.yaml` | `configs/streaming/default.yaml` tier alignment |
+| **PnL checker** | Fill + realized PnL journal | — | Spread fill trail on Deribit catalog | Full `LearningRecord` incl. commission ✓ | Multi-strategy attribution ✓ | IB fee-aligned backtest | Live vs replay parity checks on captured catalogs |
 
 ---
 
@@ -811,12 +814,15 @@ Layer enforcement exactly as [`README.md`](docs/design/README.md):
 | Layer | What | When |
 | --- | --- | --- |
 | Unit | `evaluate_pre_greek`, `RiskPolicy.check`, models, SessionActor blackout, operational checklist | Phases 2+ ✓ |
-| Unit | Venue adapter registry, structure selectors | Phase 4–5 |
+| Unit | Venue adapter registry, structure selectors | Phases 4–5 ✓ |
+| Unit | Cost math alignment + `LearningModule` attribution | Phase 6 ✓ |
+| Unit | TopN selection, diversification caps, approval classifier | Phase 7 ✓ |
 | Integration | `BacktestNode` catalog smoke (node lifecycle) | Phases 1–3 ✓ |
 | Integration | Full gate → order → fill journal trail (SPY legacy) | Phase 3 ✓ |
-| Integration | Deribit catalog gate → spread → fill → PnL | Phase 5 |
-| Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phases 1–4+ |
-| Manual | `nautilus-zerodte paper` against Deribit testnet | After Phase 5 |
+| Integration | Deribit catalog gate → spread → fill → PnL + `LEARNING_RECORD` | Phase 6 ✓ |
+| Integration | Two-strategy SelectorActor TopN + approval stub + fill trail | Phase 7 ✓ |
+| Smoke | `TradingNode` builds, `--dry-run`, no credential-dependent orders | Phases 1–5 ✓ |
+| Manual | `nautilus-zerodte paper` against Deribit testnet | After Phase 5 ✓ |
 | Manual | `nautilus-zerodte paper` against IB paper | After Phase 8 |
 | Manual | `paper --streaming` → `catalog convert` → `backtest` replay on captured run | Phase 9 |
 
@@ -828,11 +834,10 @@ Per [`.cursor/rules/agent.mdc`](.cursor/rules/agent.mdc): add tests when adding 
 
 | Group | Packages | When |
 | --- | --- | --- |
-| runtime | `nautilus-trader[ib]` (existing), `pydantic`, `pyyaml`, `typer` | Phases 1–3 ✓ |
-| runtime | `nautilus-trader[deribit]` (or equivalent NT extra) | Phase 4 |
-| dev | `pytest`, `ruff` | Phases 1–3 ✓ |
+| runtime | `nautilus-trader[ib,deribit]`, `pydantic`, `pyyaml`, `typer` | Phases 1–5 ✓ |
+| dev | `pytest`, `ruff` | Phases 1–5 ✓ |
 
-Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phase 5**.
+Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice (Phase 5 ✓).
 
 ---
 
@@ -841,25 +846,60 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 | Phase | Done when |
 | --- | --- |
 | **1–3** ✓ | Venue-agnostic core: gates → order → fill → PnL on SPY catalog; `--dry-run`; 40 tests green |
-| **4** | Venue adapter registry; `paper_btc.yaml` builds TradingNode dry-run; SPY regression tests still green; design docs updated |
-| **5** | Deribit combo `OrderList` live + backtest; crypto session blackout in journal; Deribit catalog integration test green |
-| **6** | `MakerTakerFeeModel` on Deribit backtest; real `edge_after_cost_bps`; `LearningRecord` with commission on fills |
-| **7** | Two strategies + SelectorActor TopN; human approval stub before automation |
+| **4** ✓ | Venue adapter registry; `paper_btc.yaml` builds TradingNode dry-run; SPY regression tests still green; design docs updated |
+| **5** ✓ | Deribit combo `OrderList` live + backtest; crypto session blackout in journal; Deribit catalog integration test green; 56 tests green |
+| **6** ✓ | `MakerTakerFeeModel` on Deribit backtest; real `edge_after_cost_bps`; `LearningRecord` with commission on fills; **62 tests green** |
+| **7** ✓ | Two strategies + SelectorActor TopN; human approval stub before automation; **70 tests green** |
 | **8** | IB BAG spread path on `paper_spy.yaml`; `FixedFeeModel` for IB backtest; IB fee-aligned edge gate |
 | **9** | Optional components behind feature flags; operator can capture paper session → Parquet catalog → backtest replay via `StreamingFeatherWriter` |
 
 ---
 
-## Key files — next up (Phase 4 order)
+## Key files — next up (Phase 8 order)
 
-1. [`docs/design/README.md`](docs/design/README.md) — flip venue priority (Deribit primary)
-2. [`src/nautilus_zerodte/node/adapters/`](src/nautilus_zerodte/node/adapters/) — registry + deribit + ib modules
-3. [`src/nautilus_zerodte/config/schema.py`](src/nautilus_zerodte/config/schema.py) — `DeribitConfig`, venue-aware `VenueConfig`
-4. [`configs/session/crypto_deribit.yaml`](configs/session/crypto_deribit.yaml) — daily expiry blackout
-5. [`configs/profiles/paper_btc.yaml`](configs/profiles/paper_btc.yaml) — default operator profile
-6. [`src/nautilus_zerodte/node/factory.py`](src/nautilus_zerodte/node/factory.py) — delegate to adapter registry
-7. [`pyproject.toml`](pyproject.toml) — `nautilus-trader[deribit]` extra
-8. [`.env.example`](.env.example) — `DERIBIT_API_KEY`, `DERIBIT_API_SECRET`, `DERIBIT_TESTNET`
+1. [`src/nautilus_zerodte/strategies/selectors/ib.py`](src/nautilus_zerodte/strategies/selectors/ib.py) — IB BAG spread selector
+2. [`configs/fees/ib_options.yaml`](configs/fees/ib_options.yaml) — per-contract `FixedFeeModel` schedule
+3. [`configs/session/us_equity.yaml`](configs/session/us_equity.yaml) — T-30m blackout before US equity close
+4. [`configs/profiles/paper_spy.yaml`](configs/profiles/paper_spy.yaml) — elevate as explicit IB secondary profile
+5. Factory + edge math — wire IB fee schedule into `BacktestVenueConfig` and pre-trade `edge_after_cost_bps`
+6. Tests — IB BAG spread integration on SPY catalog; fee-aligned edge gate
+
+## Key files delivered (Phase 7)
+
+1. [`src/nautilus_zerodte/actors/selector.py`](src/nautilus_zerodte/actors/selector.py) — `SelectorActor` join barrier, TopN, approval routing
+2. [`src/nautilus_zerodte/approval/classifier.py`](src/nautilus_zerodte/approval/classifier.py) + [`handlers.py`](src/nautilus_zerodte/approval/handlers.py) — `HUMAN` vs `AUTOMATION`; human stub
+3. [`src/nautilus_zerodte/models/diversification.py`](src/nautilus_zerodte/models/diversification.py) — `select_intents()` pure TopN logic
+4. [`src/nautilus_zerodte/actors/data_types.py`](src/nautilus_zerodte/actors/data_types.py) — `TRADE_INTENT_*` MessageBus topics + snapshots
+5. [`src/nautilus_zerodte/strategies/base.py`](src/nautilus_zerodte/strategies/base.py) — `PENDING_APPROVAL` FSM; publish/approve flow when `selector_enabled`
+6. [`src/nautilus_zerodte/config/schema.py`](src/nautilus_zerodte/config/schema.py) — `strategies[]`, `DiversificationConfig`, `ApprovalConfig`
+7. [`src/nautilus_zerodte/node/factory.py`](src/nautilus_zerodte/node/factory.py) — multi-strategy list; conditional `SelectorActor` registration
+8. [`configs/profiles/backtest_btc_multi.yaml`](configs/profiles/backtest_btc_multi.yaml) — two reference strategies, TopN=1
+9. [`configs/diversification/default.yaml`](configs/diversification/default.yaml) — diversification caps overlay
+10. Tests — [`tests/unit/test_selector.py`](tests/unit/test_selector.py), [`tests/integration/test_multi_strategy_backtest.py`](tests/integration/test_multi_strategy_backtest.py); **70 tests green**
+
+## Key files delivered (Phase 6)
+
+1. [`docs/implementation/learning-attribution.md`](docs/implementation/learning-attribution.md) — attribution ADR (theta/gamma/vega + commission/slippage)
+2. [`configs/fees/deribit_options.yaml`](configs/fees/deribit_options.yaml) — maker/taker schedule (single source of truth)
+3. [`src/nautilus_zerodte/config/schema.py`](src/nautilus_zerodte/config/schema.py) — `FeeScheduleConfig`; loader auto-merges `fees/deribit_options.yaml` for DERIBIT profiles
+4. [`src/nautilus_zerodte/costs/deribit.py`](src/nautilus_zerodte/costs/deribit.py) — `deribit_edge_after_cost_bps`, `expected_commission_bps`
+5. [`src/nautilus_zerodte/node/factory.py`](src/nautilus_zerodte/node/factory.py) — `MakerTakerFeeModel` on `BacktestVenueConfig` when `venue.adapter: DERIBIT`
+6. [`src/nautilus_zerodte/learning/module.py`](src/nautilus_zerodte/learning/module.py) — `LearningModule` on fills → `GateStage.LEARNING` / `LEARNING_RECORD`
+7. [`src/nautilus_zerodte/models/learning.py`](src/nautilus_zerodte/models/learning.py) — `commission` field; `models/enums.py` — `GateStage.LEARNING`
+8. Tests — [`tests/unit/test_costs.py`](tests/unit/test_costs.py), [`tests/unit/test_learning.py`](tests/unit/test_learning.py); integration asserts commission + `LEARNING_RECORD`; **62 tests green**
+
+## Key files delivered (Phases 4–5)
+
+1. [`src/nautilus_zerodte/node/adapters/`](src/nautilus_zerodte/node/adapters/) — `registry.py`, `deribit.py`, `ib.py`
+2. [`src/nautilus_zerodte/config/schema.py`](src/nautilus_zerodte/config/schema.py) — `DeribitConfig`, `VenueConfig.adapter`, `SessionConfig.expiry_mode`
+3. [`configs/session/crypto_deribit.yaml`](configs/session/crypto_deribit.yaml) — daily UTC expiry blackout
+4. [`configs/profiles/paper_btc.yaml`](configs/profiles/paper_btc.yaml) — default operator profile
+5. [`configs/profiles/backtest_btc.yaml`](configs/profiles/backtest_btc.yaml) — Deribit catalog backtest profile
+6. [`src/nautilus_zerodte/strategies/selectors/`](src/nautilus_zerodte/strategies/selectors/) — Deribit combo spread selection
+7. [`tests/fixtures/catalog_deribit/`](tests/fixtures/catalog_deribit/) — committed parquet slice + [`scripts/build_deribit_catalog_fixture.py`](scripts/build_deribit_catalog_fixture.py)
+8. [`pyproject.toml`](pyproject.toml) — `nautilus-trader[deribit,ib]>=1.229.0a0`
+9. [`.env.example`](.env.example) — `DERIBIT_API_KEY`, `DERIBIT_API_SECRET`, `DERIBIT_TESTNET`
+10. [`docs/design/README.md`](docs/design/README.md) — Deribit primary, IB secondary
 
 ---
 
@@ -998,3 +1038,168 @@ Catalog fixtures: SPY slice (Phases 1–3 ✓); Deribit options slice — **Phas
 7. Unit test adapter selection; integration smoke `paper_btc.yaml` + `dry_run: true`.
 8. **Regression:** existing SPY backtest integration tests remain green.
 9. **Vertical slice proof for Phase 4:** `paper --config configs/profiles/paper_btc.yaml --dry-run` builds node with Deribit adapter config; journal `NODE_START`.
+
+---
+
+## Phase 4 handoff (completed 2026-06-24)
+
+**Vertical slice proof:** `paper --config configs/profiles/paper_btc.yaml --dry-run` builds `TradingNode` with Deribit data/exec clients registered; SPY backtest regression tests remain green.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| Venue registry | `node/adapters/registry.py`, `deribit.py`, `ib.py` | `resolve_venue_adapter`, `build_venue_client_wiring`; fail closed on unknown adapter |
+| Config | `config/schema.py` | `VenueConfig.adapter`, `DeribitConfig`, `SessionConfig.expiry_mode` |
+| Session | `configs/session/crypto_deribit.yaml` | `daily_utc` expiry blackout at 08:00 UTC |
+| Profile | `configs/profiles/paper_btc.yaml` | Default operator profile (Deribit, `dry_run: true`) |
+| Factory | `node/factory.py` | Venue-aware `_backtest_venue_config`; delegates live wiring to adapter registry |
+| Design docs | `docs/design/README.md`, `ingestion-tiers.md` | Deribit primary, IB secondary |
+| Deps | `pyproject.toml`, `.env.example` | `nautilus-trader[deribit,ib]>=1.229.0a0`; `DERIBIT_*` env var names |
+| Tests | `tests/unit/test_adapters.py`, `test_config.py`, `integration/test_backtest_smoke.py` | Adapter selection + `paper_btc` dry-run smoke |
+
+### Known constraints for Phase 5
+
+1. **No structure selector yet** — `ReferenceZeroDteStrategy` still uses `backtest_plumbing` for SPY legacy; Deribit combo submit is Phase 5.
+2. **No Deribit catalog fixture** — backtest on Deribit requires committed parquet slice (Phase 5).
+3. **`edge_after_cost_bps` is stubbed** — half-spread heuristic only; Phase 6 aligns to `FeeModel`.
+4. **`BacktestVenueConfig.fee_model` unset** — Phase 6 wires `MakerTakerFeeModel`.
+5. **Dual journal paths unchanged** — factory `NODE_*` + strategy journal append to same JSONL path.
+6. **Single strategy only** — no `SelectorActor` until Phase 7.
+
+### Phase 5 start checklist
+
+1. Wire NT Deribit data + exec client factories in `node/adapters/deribit.py` (instrument provider at node start).
+2. Add `strategies/selectors/deribit.py` — ATM call vertical, `CryptoOptionSpread` combo `InstrumentId`, `OrderList` build.
+3. Refactor `ReferenceZeroDteStrategy.submit_entry` to delegate to venue selector (`structure_selector: deribit`).
+4. Apply `crypto_deribit.yaml` session overlay — daily expiry blackout (not US equity close).
+5. Build `tests/fixtures/catalog_deribit/` + `scripts/build_deribit_catalog_fixture.py`.
+6. Add `configs/profiles/backtest_btc.yaml` mirroring reference backtest profile.
+7. Integration test: full gate → spread order → fill → PnL journal trail on Deribit catalog.
+8. **Regression:** SPY `backtest_reference` integration test remains green.
+9. **Vertical slice proof for Phase 5:** `backtest_btc.yaml` + `catalog_deribit` → JSONL contains `ORDER_SUBMIT` (BTC-CS spread) → `FILL` → `PNL`.
+
+---
+
+## Phase 5 handoff (completed 2026-06-24)
+
+**Vertical slice proof:** `configs/profiles/backtest_btc.yaml` + `tests/fixtures/catalog_deribit` → JSONL contains `GREEK_PASSED` → `ORDER_SUBMIT` (BTC-CS spread) → `FILL` → `PNL`; `FSM_TRANSITION` to `InPosition`.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| Deribit wiring | `node/adapters/deribit.py` | Data + exec client factories; testnet credential resolution from env |
+| Structure selector | `strategies/selectors/deribit.py`, `registry.py`, `base.py` | ATM ± N call vertical; combo id + `OrderList` legs |
+| Reference strategy | `strategies/reference.py` | Delegates to selector via `structure_selector: deribit`; spread submit on Deribit profiles |
+| Catalog | `tests/fixtures/catalog_deribit/`, `scripts/build_deribit_catalog_fixture.py` | BTC options, spread, greeks, perp parquet slice |
+| Profile | `configs/profiles/backtest_btc.yaml` | Full Deribit backtest profile with crypto session |
+| Session | `configs/session/crypto_deribit.yaml` | WARM 30s chain interval; daily UTC expiry blackout |
+| Tests | `tests/integration/test_deribit_backtest.py`, `tests/unit/test_deribit_selector.py` | Full journal trail + selector unit tests; **56 tests green** |
+
+### Known constraints carried into Phase 6
+
+1. **`edge_after_cost_bps` uses half-spread heuristic** in `selectors/deribit.py` — not yet aligned to `FeeModel` / `configs/fees/deribit_options.yaml`.
+2. **`BacktestVenueConfig.fee_model` unset** — backtest fills have no commission; Phase 6 wires `MakerTakerFeeModel`.
+3. **PnL journal** uses `Portfolio.realized_pnl` + `unrealized_pnl` — no theta/gamma/vega decomposition until `LearningModule`.
+4. **No `learning/` package yet** — `LearningRecord` model exists but no fill attribution subscriber.
+5. **`backtest_plumbing: true`** remains for SPY legacy regression only; Deribit profiles use real combo submit.
+6. **Dual journal paths unchanged** — factory `NODE_*` + strategy journal append to same JSONL path.
+7. **Single strategy only** — no `SelectorActor` until Phase 7.
+8. **IB structure selector deferred** — Phase 8 adds `selectors/ib.py` for BAG spreads.
+
+### Phase 6 start checklist
+
+1. Write `docs/implementation/learning-attribution.md` — rule-based theta/gamma/vega decomposition; commission and slippage as separate cost terms (no ML).
+2. Add `configs/fees/deribit_options.yaml` and extend `config/schema.py` + loader for fee overlay merge.
+3. Wire `MakerTakerFeeModel` into `_backtest_venue_config()` in `node/factory.py` when `venue.adapter: DERIBIT`.
+4. Replace stub `edge_after_cost_bps` in selector/reference with quote-derived costs aligned to fee schedule (single source of truth rule).
+5. Implement `learning/module.py` — subscribe to `OrderFilled`; attribute theta/gamma/vega/slippage/commission → `LearningRecord`.
+6. Compare `edge_predicted_bps` vs `edge_realized_bps` on fills; write through Journal.
+7. Unit tests: cost math alignment (pre-trade estimate matches `FeeModel` schedule); `LearningModule` attribution fields.
+8. Integration: Deribit backtest PnL reflects fees; journal includes commission on fills.
+9. **Vertical slice proof for Phase 6:** `LearningRecord` on fills; `edge_predicted_bps` vs `edge_realized_bps` in journal; backtest PnL net of `MakerTakerFeeModel`.
+
+---
+
+## Phase 6 handoff (completed 2026-06-26)
+
+**Vertical slice proof:** `configs/profiles/backtest_btc.yaml` + `tests/fixtures/catalog_deribit` → JSONL contains `FILL` with `commission`, `LEARNING_RECORD` with `edge_predicted_bps` / `edge_realized_bps`; backtest uses `MakerTakerFeeModel`.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| Attribution ADR | `docs/implementation/learning-attribution.md` | Rule-based decomposition; commission vs slippage vs edge |
+| Fee config | `configs/fees/deribit_options.yaml` | 0.03% maker/taker; auto-loaded for DERIBIT profiles |
+| Schema + loader | `config/schema.py`, `config/loader.py` | `FeeScheduleConfig`; fees overlay merge |
+| Cost math | `costs/deribit.py` | `edge_after_cost_bps` includes spread + commission bps |
+| Factory | `node/factory.py` | `MakerTakerFeeModel` on Deribit `BacktestVenueConfig` |
+| Selector | `strategies/selectors/deribit.py` | Fee-schedule-aware edge; passes `fee_schedule` from config |
+| Learning | `learning/module.py`, `models/learning.py` | `LearningModule` on fills; `GateStage.LEARNING` |
+| Strategy | `strategies/base.py` | Wires `LearningModule`; journals commission on `FILL` |
+| Tests | `test_costs.py`, `test_learning.py`, `test_deribit_backtest.py` | **62 tests green** |
+
+### Known constraints carried into Phase 7
+
+1. **Single strategy only** — no `SelectorActor` until Phase 7; `LearningModule` is per-strategy in `BaseZeroDteStrategy`.
+2. **IB `FixedFeeModel` deferred** — Phase 8 adds `configs/fees/ib_options.yaml` and IB edge math.
+3. **`calibrate()` is a stub** — returns empty adjustments; no ML.
+4. **Greek attribution is rule-based** — theta/gamma/vega from entry greeks + simple deltas; refine with hold-time data later.
+5. **`backtest_plumbing: true`** remains for SPY legacy regression only.
+6. **Dual journal paths unchanged** — factory `NODE_*` + strategy journal append to same JSONL path.
+7. **Fee rates on instruments** — catalog fixtures carry `maker_fee`/`taker_fee`; yaml schedule must stay aligned when regenerating fixtures.
+
+### Phase 7 start checklist
+
+1. Implement `actors/selector.py` — `SelectorActor` collects `TradeIntent`s from N strategies; TopN via `DiversificationPolicy`.
+2. Implement `approval/classifier.py` + `approval/handlers.py` — `HUMAN` vs `AUTOMATION` routing; human approval stub before submit.
+3. Extend factory + config for multi-strategy profiles (two reference strategies on Deribit).
+4. Optional: refactor journal fan-in to `JournalActor` on MessageBus if injected calls become awkward.
+5. Unit tests: TopN selection, diversification caps, approval classifier thresholds.
+6. Integration: two Deribit strategies + SelectorActor; `LEARNING_RECORD` on fills; human approval stub journals before automation path.
+7. **Regression:** single-strategy `backtest_btc.yaml` trail remains green.
+8. **Vertical slice proof for Phase 7:** two strategies compete; SelectorActor approves TopN; approval stub journals before submit.
+
+---
+
+## Phase 7 handoff (completed 2026-06-26)
+
+**Vertical slice proof:** `configs/profiles/backtest_btc_multi.yaml` + `tests/fixtures/catalog_deribit` → JSONL contains `SELECTOR_APPROVED` → `HUMAN_APPROVAL_STUB` → `ORDER_SUBMIT` → `FILL` → `LEARNING_RECORD`; `SELECTOR_REJECTED` for competing intent.
+
+### Delivered
+
+| Area | Path | Notes |
+| --- | --- | --- |
+| SelectorActor | `actors/selector.py` | Join barrier on `TRADE_INTENT_TOPIC`; debounced finalize; TopN via `select_intents()` |
+| Approval | `approval/classifier.py`, `approval/handlers.py` | `ActorKind` routing; `HUMAN_APPROVAL_STUB` auto-approves; `AUTOMATION_APPROVED` journal |
+| Diversification | `models/diversification.py` | Pure `select_intents()` — TopN, max per instrument/strategy |
+| Bus payloads | `actors/data_types.py` | `TRADE_INTENT_*` topics; snapshot ↔ `TradeIntent` helpers |
+| Strategy FSM | `strategies/base.py` | `PENDING_APPROVAL` state; publish intent → await approved topic → submit |
+| Config | `config/schema.py`, `config/loader.py` | `strategies[]`, `DiversificationConfig`, `ApprovalConfig`; overlay merge |
+| Factory | `node/factory.py` | `_strategy_configs()` list; `SelectorActor` when `len(strategies) > 1` |
+| Profiles | `configs/profiles/backtest_btc_multi.yaml`, `configs/diversification/default.yaml` | Two Deribit reference strategies; TopN=1 |
+| Tests | `test_selector.py`, `test_multi_strategy_backtest.py` | **70 tests green** |
+
+### Known constraints carried into Phase 8
+
+1. **`JournalActor` refactor deferred** — injected `Journal` per strategy + selector journal is sufficient; no MessageBus fan-in refactor yet.
+2. **Human approval is a stub** — `HumanApprovalHandler` auto-approves with audit journal; real CLI prompt deferred.
+3. **Selector batches per debounce window** — `batch_interval_ms` (default 50–100ms); strategies re-evaluate on each chain tick while `Flat`.
+4. **`selector_enabled` only on reference strategies** — gated_skeleton config unchanged; multi-strategy uses `reference` class.
+5. **IB `FixedFeeModel` deferred** — Phase 8 adds `configs/fees/ib_options.yaml` and IB edge math.
+6. **Dual journal paths unchanged** — factory `NODE_*` + strategy/selector journals append to same JSONL path.
+7. **Single-strategy profiles unchanged** — `backtest_btc.yaml` regression trail remains green without SelectorActor.
+
+### Phase 8 start checklist
+
+1. Add `strategies/selectors/ib.py` — ATM ± N vertical from `OptionChainSlice`; IB BAG `InstrumentId`.
+2. Add `configs/fees/ib_options.yaml` and extend loader for IB fee overlay when `venue.adapter: IB`.
+3. Wire `FixedFeeModel` into `_backtest_venue_config()` when `venue.adapter: IB`.
+4. Replace stub IB edge math in selector/reference with per-contract fee schedule (single source of truth rule).
+5. Update `configs/profiles/paper_spy.yaml` — explicit `venue.adapter: IB`, SPX/SPY underlying.
+6. Apply `configs/session/us_equity.yaml` — T-30m blackout before US equity close.
+7. Unit tests: IB structure selector; IB fee model wiring.
+8. Integration: SPY catalog backtest with IB BAG spread + `FixedFeeModel`.
+9. **Regression:** Deribit `backtest_btc.yaml` and multi-strategy `backtest_btc_multi.yaml` trails remain green.
+10. **Vertical slice proof for Phase 8:** `paper_spy.yaml` + IB paper: BAG spread `OrderList` → fill journal trail (manual operator).
