@@ -16,6 +16,7 @@ class RegimeTag(StrEnum):
 class StrategyState(StrEnum):
     FLAT = "Flat"
     EVALUATING = "Evaluating"
+    PENDING_APPROVAL = "PendingApproval"
     PENDING_ENTRY = "PendingEntry"
     IN_POSITION = "InPosition"
     EXITING = "Exiting"

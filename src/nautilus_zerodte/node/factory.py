@@ -18,7 +18,7 @@ from nautilus_trader.model.enums import InstrumentClass
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
-from nautilus_zerodte.config.schema import AppConfig
+from nautilus_zerodte.config.schema import AppConfig, ReferenceStrategyConfig, StrategyRuntimeConfig
 from nautilus_zerodte.journal.service import Journal
 from nautilus_zerodte.models.enums import GateStage, VenueAdapter
 from nautilus_zerodte.node.adapters.registry import (
@@ -43,53 +43,80 @@ _STRATEGY_PATHS: dict[str, tuple[str, str]] = {
 }
 
 
-def _gate_strategy_config(config: AppConfig) -> dict:
+def _gate_strategy_config(
+    config: AppConfig,
+    runtime: StrategyRuntimeConfig | None = None,
+) -> dict:
+    runtime = runtime or config.strategy
     return {
-        "min_edge_after_cost_bps": config.gates.min_edge_after_cost_bps,
-        "min_liquidity_score": config.gates.min_liquidity_score,
-        "blocked_regimes": tuple(config.regime.blocked_regimes),
+        "min_edge_after_cost_bps": (
+            runtime.min_edge_after_cost_bps
+            if runtime.min_edge_after_cost_bps is not None
+            else config.gates.min_edge_after_cost_bps
+        ),
+        "min_liquidity_score": (
+            runtime.min_liquidity_score
+            if runtime.min_liquidity_score is not None
+            else config.gates.min_liquidity_score
+        ),
+        "blocked_regimes": tuple(
+            runtime.blocked_regimes
+            if runtime.blocked_regimes is not None
+            else config.regime.blocked_regimes
+        ),
         "require_chain_snapshot": config.operational.require_chain_snapshot,
         "max_underlying_quote_age_secs": config.operational.max_underlying_quote_age_secs,
         "risk_policy": config.risk.model_dump(mode="json"),
     }
 
 
-def _reference_strategy_config(config: AppConfig) -> dict:
+def _reference_strategy_config(
+    config: AppConfig,
+    reference: ReferenceStrategyConfig,
+    runtime: StrategyRuntimeConfig | None = None,
+) -> dict:
     return {
-        **_gate_strategy_config(config),
+        **_gate_strategy_config(config, runtime),
         "dry_run": config.dry_run,
         "venue_adapter": config.venue.adapter.value,
         "fee_schedule": config.fees.model_dump(mode="json"),
         "max_chain_snapshot_age_secs": config.operational.max_chain_snapshot_age_secs,
         "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
-        "backtest_plumbing": config.reference.backtest_plumbing,
-        "structure_selector": config.reference.structure_selector,
-        "option_series_id": config.reference.option_series_id,
-        "option_series_expiry": config.reference.option_series_expiry,
-        "option_series_expiry_time_utc": config.reference.option_series_expiry_time_utc,
-        "settlement_currency": config.reference.settlement_currency,
-        "strike_width": config.reference.strike_width,
-        "order_qty": config.reference.order_qty,
-        "take_profit_pct": config.reference.take_profit_pct,
-        "stop_loss_pct": config.reference.stop_loss_pct,
-        "hedge_perp_instrument": config.reference.hedge_perp_instrument,
-        "hedge_delta_band": config.reference.hedge_delta_band,
+        "backtest_plumbing": reference.backtest_plumbing,
+        "structure_selector": reference.structure_selector,
+        "option_series_id": reference.option_series_id,
+        "option_series_expiry": reference.option_series_expiry,
+        "option_series_expiry_time_utc": reference.option_series_expiry_time_utc,
+        "settlement_currency": reference.settlement_currency,
+        "strike_width": reference.strike_width,
+        "order_qty": reference.order_qty,
+        "take_profit_pct": reference.take_profit_pct,
+        "stop_loss_pct": reference.stop_loss_pct,
+        "hedge_perp_instrument": reference.hedge_perp_instrument,
+        "hedge_delta_band": reference.hedge_delta_band,
     }
 
 
-def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrategyConfig:
-    strategy_class = config.strategy.strategy_class
+def _strategy_config(
+    config: AppConfig,
+    journal_path: Path,
+    runtime: StrategyRuntimeConfig | None = None,
+) -> ImportableStrategyConfig:
+    runtime = runtime or config.strategy
+    strategy_class = runtime.strategy_class
     resolved_class = strategy_class if strategy_class in _STRATEGY_PATHS else "gated_skeleton"
     paths = _STRATEGY_PATHS[resolved_class]
+    reference = runtime.reference or config.reference
     base_config: dict = {
-        "strategy_id": config.strategy.strategy_id,
+        "strategy_id": runtime.strategy_id,
         "journal_path": str(journal_path),
-        "underlying": config.strategy.underlying,
+        "underlying": runtime.underlying,
     }
     if resolved_class == "gated_skeleton":
-        base_config.update(_gate_strategy_config(config))
+        base_config.update(_gate_strategy_config(config, runtime))
     elif resolved_class == "reference":
-        base_config.update(_reference_strategy_config(config))
+        base_config["selector_enabled"] = config.selector_enabled()
+        base_config.update(_reference_strategy_config(config, reference, runtime))
     return ImportableStrategyConfig(
         strategy_path=paths[0],
         config_path=paths[1],
@@ -97,28 +124,49 @@ def _strategy_config(config: AppConfig, journal_path: Path) -> ImportableStrateg
     )
 
 
+def _strategy_configs(config: AppConfig, journal_path: Path) -> list[ImportableStrategyConfig]:
+    runtimes = config.resolved_strategies()
+    return [_strategy_config(config, journal_path, runtime) for runtime in runtimes]
+
+
 def _actor_configs(config: AppConfig) -> list[ImportableActorConfig]:
-    return [
+    primary = config.resolved_strategies()[0]
+    actors = [
         ImportableActorConfig(
             actor_path="nautilus_zerodte.actors.session:SessionActor",
             config_path="nautilus_zerodte.actors.session:SessionActorConfig",
             config={
                 "blackout_minutes_before_close": config.session.blackout_minutes_before_close,
                 "market_close_utc": config.session.market_close_utc,
-                "underlying": config.strategy.underlying,
+                "underlying": primary.underlying,
             },
         ),
         ImportableActorConfig(
             actor_path="nautilus_zerodte.actors.regime:RegimeActor",
             config_path="nautilus_zerodte.actors.regime:RegimeActorConfig",
             config={
-                "underlying": config.strategy.underlying,
+                "underlying": primary.underlying,
                 "trend_move_pct": config.regime.trend_move_pct,
                 "chop_range_pct": config.regime.chop_range_pct,
                 "pin_strike_proximity_pct": config.regime.pin_strike_proximity_pct,
             },
         ),
     ]
+    if config.selector_enabled():
+        journal_path = config.resolved_journal_path()
+        actors.append(
+            ImportableActorConfig(
+                actor_path="nautilus_zerodte.actors.selector:SelectorActor",
+                config_path="nautilus_zerodte.actors.selector:SelectorActorConfig",
+                config={
+                    "journal_path": str(journal_path),
+                    "diversification": config.diversification.model_dump(mode="json"),
+                    "approval": config.approval.model_dump(mode="json"),
+                    "batch_interval_ms": config.diversification.batch_interval_ms,
+                },
+            )
+        )
+    return actors
 
 
 def _catalog_time_bounds(catalog_path: Path, instrument_id: InstrumentId) -> tuple[int, int]:
@@ -216,14 +264,14 @@ def _backtest_venue_config(config: AppConfig) -> BacktestVenueConfig:
 def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> BacktestNode:
     """Build a BacktestNode wired with actors, strategy, and catalog data."""
     catalog = Path(catalog_path)
-    instrument_id = InstrumentId.from_str(config.strategy.underlying)
+    instrument_id = InstrumentId.from_str(config.resolved_strategies()[0].underlying)
     start_time, end_time = _catalog_time_bounds(catalog, instrument_id)
     journal_path = config.resolved_journal_path()
 
     engine_config = BacktestEngineConfig(
         trader_id=config.trader_id,
         actors=_actor_configs(config),
-        strategies=[_strategy_config(config, journal_path)],
+        strategies=_strategy_configs(config, journal_path),
         logging=LoggingConfig(bypass_logging=True),
     )
     data_config = _backtest_data_configs(config, catalog, instrument_id, start_time, end_time)
@@ -242,7 +290,7 @@ def build_trading_node(config: AppConfig) -> TradingNode:
         trader_id=config.trader_id,
         logging=LoggingConfig(log_level="ERROR"),
         actors=_actor_configs(config),
-        strategies=[_strategy_config(config, journal_path)],
+        strategies=_strategy_configs(config, journal_path),
     )
 
     wiring = build_venue_client_wiring(config, dry_run=config.dry_run)

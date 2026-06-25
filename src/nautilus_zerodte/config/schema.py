@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from nautilus_zerodte.models.diversification import DiversificationPolicy
 from nautilus_zerodte.models.enums import SessionExpiryMode, VenueAdapter
 from nautilus_zerodte.models.risk import RiskPolicy
 
@@ -63,6 +64,32 @@ class StrategyRuntimeConfig(BaseModel):
     strategy_id: str = "skeleton-001"
     strategy_class: str = "skeleton"
     underlying: str = "SPY.NYSE"
+    min_edge_after_cost_bps: float | None = None
+    min_liquidity_score: float | None = None
+    blocked_regimes: list[str] | None = None
+    reference: ReferenceStrategyConfig | None = None
+
+
+class DiversificationConfig(BaseModel):
+    enabled: bool = False
+    top_n: int = 3
+    max_per_instrument: int = 1
+    max_per_strategy: float = 0.5
+    max_gross_risk_pct: float = 1.0
+    batch_interval_ms: int = 100
+
+    def to_policy(self) -> DiversificationPolicy:
+        return DiversificationPolicy(
+            top_n=self.top_n,
+            max_per_instrument=self.max_per_instrument,
+            max_per_strategy=self.max_per_strategy,
+            max_gross_risk_pct=self.max_gross_risk_pct,
+        )
+
+
+class ApprovalConfig(BaseModel):
+    human_notional_threshold: float = 10_000.0
+    human_edge_bps_threshold: float = 50.0
 
 
 class SubscriptionConfig(BaseModel):
@@ -104,6 +131,9 @@ class AppConfig(BaseModel):
     fees: FeeScheduleConfig = Field(default_factory=FeeScheduleConfig)
     operational: OperationalConfig = Field(default_factory=OperationalConfig)
     strategy: StrategyRuntimeConfig = Field(default_factory=StrategyRuntimeConfig)
+    strategies: list[StrategyRuntimeConfig] | None = None
+    diversification: DiversificationConfig = Field(default_factory=DiversificationConfig)
+    approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
     reference: ReferenceStrategyConfig = Field(default_factory=ReferenceStrategyConfig)
     subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
     ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)
@@ -118,3 +148,12 @@ class AppConfig(BaseModel):
         if path.parts and path.parts[0] == "runs":
             relative = Path(*path.parts[1:]) if len(path.parts) > 1 else Path("latest.jsonl")
         return base / relative
+
+    def resolved_strategies(self) -> list[StrategyRuntimeConfig]:
+        if self.strategies:
+            return self.strategies
+        return [self.strategy]
+
+    def selector_enabled(self) -> bool:
+        strategies = self.resolved_strategies()
+        return self.diversification.enabled or len(strategies) > 1

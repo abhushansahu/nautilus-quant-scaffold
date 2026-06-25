@@ -1,0 +1,10 @@
+# Diversification caps when multiple strategies compete for capital
+
+diversification:
+  top_n: 1
+  max_per_instrument: 1
+  max_per_strategy: 0.5
+  batch_interval_ms: 50
+
+approval:
+  human_edge_bps_threshold: -5000.0  # route all through human stub in Phase 7

@@ -11,8 +11,15 @@ from nautilus_trader.trading.strategy import Strategy
 from nautilus_zerodte.actors.data_types import (
     REGIME_TAG_TOPIC,
     SESSION_PHASE_TOPIC,
+    TRADE_INTENT_APPROVED_TOPIC,
+    TRADE_INTENT_REJECTED_TOPIC,
+    TRADE_INTENT_TOPIC,
     RegimeTagSnapshot,
     SessionPhaseSnapshot,
+    TradeIntentApprovedSnapshot,
+    TradeIntentRejectedSnapshot,
+    approved_snapshot_to_trade_intent,
+    trade_intent_to_snapshot,
 )
 from nautilus_zerodte.config.schema import FeeScheduleConfig
 from nautilus_zerodte.gates.context import GateContext
@@ -39,6 +46,7 @@ class BaseZeroDteStrategyConfig(StrategyConfig, frozen=True):
     chain_snapshot_interval_ms: int = 60_000
     risk_policy: dict | None = None
     fee_schedule: dict | None = None
+    selector_enabled: bool = False
 
 
 class BaseZeroDteStrategy(Strategy):
@@ -63,6 +71,7 @@ class BaseZeroDteStrategy(Strategy):
         self._last_chain_ts: int | None = None
         self._active_intent_id: UUID | None = None
         self._active_intent: TradeIntent | None = None
+        self._pending_intent: TradeIntent | None = None
         self._entry_price: float | None = None
 
     @property
@@ -77,11 +86,29 @@ class BaseZeroDteStrategy(Strategy):
         )
         self.msgbus.subscribe(topic=SESSION_PHASE_TOPIC, handler=self._on_session_phase)
         self.msgbus.subscribe(topic=REGIME_TAG_TOPIC, handler=self._on_regime_tag)
+        if self.config.selector_enabled:
+            self.msgbus.subscribe(
+                topic=TRADE_INTENT_APPROVED_TOPIC,
+                handler=self._on_intent_approved,
+            )
+            self.msgbus.subscribe(
+                topic=TRADE_INTENT_REJECTED_TOPIC,
+                handler=self._on_intent_rejected,
+            )
         self._subscribe_market_data()
 
     def on_stop(self) -> None:
         self.msgbus.unsubscribe(topic=SESSION_PHASE_TOPIC, handler=self._on_session_phase)
         self.msgbus.unsubscribe(topic=REGIME_TAG_TOPIC, handler=self._on_regime_tag)
+        if self.config.selector_enabled:
+            self.msgbus.unsubscribe(
+                topic=TRADE_INTENT_APPROVED_TOPIC,
+                handler=self._on_intent_approved,
+            )
+            self.msgbus.unsubscribe(
+                topic=TRADE_INTENT_REJECTED_TOPIC,
+                handler=self._on_intent_rejected,
+            )
         self._journal.record(
             GateStage.LIFECYCLE,
             payload={"event": "STRATEGY_STOP", "state": self._state.value},
@@ -224,6 +251,37 @@ class BaseZeroDteStrategy(Strategy):
         self._regime_tag = RegimeTag(msg.regime_tag)
         self._regime_received = True
 
+    def _on_intent_approved(self, msg: TradeIntentApprovedSnapshot) -> None:
+        if msg.strategy_id != self._strategy_id:
+            return
+        if self._state != StrategyState.PENDING_APPROVAL or self._pending_intent is None:
+            return
+        if str(self._pending_intent.intent_id) != msg.intent_id:
+            return
+        intent = approved_snapshot_to_trade_intent(msg)
+        self._pending_intent = None
+        self._submit_approved_intent(intent)
+
+    def _on_intent_rejected(self, msg: TradeIntentRejectedSnapshot) -> None:
+        if msg.strategy_id != self._strategy_id:
+            return
+        if self._state != StrategyState.PENDING_APPROVAL or self._pending_intent is None:
+            return
+        if str(self._pending_intent.intent_id) != msg.intent_id:
+            return
+        self._journal.record(
+            GateStage.LIFECYCLE,
+            ref_id=self._pending_intent.intent_id,
+            payload={
+                "event": "SELECTOR_REJECTED",
+                "intent_id": msg.intent_id,
+                "reason": msg.reason,
+            },
+            strategy_id=self._strategy_id,
+        )
+        self._pending_intent = None
+        self._transition(StrategyState.FLAT, reason="selector_reject")
+
     def _context_from_chain_slice(self, option_chain_slice) -> ChainEvaluationContext | None:  # noqa: ANN001
         if not self._actors_ready():
             return None
@@ -336,6 +394,15 @@ class BaseZeroDteStrategy(Strategy):
             self._transition(StrategyState.FLAT, reason="dry_run")
             return
 
+        if self.config.selector_enabled:
+            self._pending_intent = intent
+            self._transition(StrategyState.PENDING_APPROVAL, reason="selector_queue")
+            self.msgbus.publish(TRADE_INTENT_TOPIC, trade_intent_to_snapshot(intent))
+            return
+
+        self._submit_approved_intent(intent)
+
+    def _submit_approved_intent(self, intent: TradeIntent) -> None:
         self._active_intent_id = intent.intent_id
         self._active_intent = intent
         self._transition(StrategyState.PENDING_ENTRY, reason="submit")

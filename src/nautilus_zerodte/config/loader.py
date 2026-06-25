@@ -94,6 +94,12 @@ def load_config(profile_path: Path | str) -> AppConfig:
             if fees := fee_data.get("fees"):
                 merged = _deep_merge(merged, {"fees": fees})
 
+    diversification_path = configs_root / "diversification" / "default.yaml"
+    if diversification_path.exists() and (
+        merged.get("strategies") or merged.get("diversification", {}).get("enabled")
+    ):
+        merged = _deep_merge(merged, _load_yaml(diversification_path))
+
     session_overlay = _session_overlay_name(merged)
     session_path = configs_root / "session" / f"{session_overlay}.yaml"
     if session_path.exists():
