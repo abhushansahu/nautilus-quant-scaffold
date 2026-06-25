@@ -42,3 +42,4 @@ class GateStage(StrEnum):
     LIFECYCLE = "LIFECYCLE"
     FILL = "FILL"
     PNL = "PNL"
+    LEARNING = "LEARNING"

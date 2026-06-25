@@ -14,9 +14,11 @@ from nautilus_zerodte.actors.data_types import (
     RegimeTagSnapshot,
     SessionPhaseSnapshot,
 )
+from nautilus_zerodte.config.schema import FeeScheduleConfig
 from nautilus_zerodte.gates.context import GateContext
 from nautilus_zerodte.gates.evaluator import check_risk_policy, evaluate_pre_greek
 from nautilus_zerodte.journal.service import Journal
+from nautilus_zerodte.learning.module import LearningModule, _money_decimal
 from nautilus_zerodte.models.enums import GateStage, RegimeTag, StrategyState
 from nautilus_zerodte.models.risk import RiskPolicy
 from nautilus_zerodte.models.trade_intent import TradeIntent
@@ -36,6 +38,7 @@ class BaseZeroDteStrategyConfig(StrategyConfig, frozen=True):
     max_chain_snapshot_age_secs: float = 90.0
     chain_snapshot_interval_ms: int = 60_000
     risk_policy: dict | None = None
+    fee_schedule: dict | None = None
 
 
 class BaseZeroDteStrategy(Strategy):
@@ -45,6 +48,9 @@ class BaseZeroDteStrategy(Strategy):
         super().__init__(config)
         self._journal = Journal(Path(config.journal_path))
         self._strategy_id = config.strategy_id
+        self._learning = LearningModule(self._journal, strategy_id=self._strategy_id)
+        fee_data = config.fee_schedule or {}
+        self._fee_schedule = FeeScheduleConfig.model_validate(fee_data)
         risk_data = config.risk_policy or {}
         self._risk_policy = RiskPolicy.model_validate(risk_data)
         self._state = StrategyState.FLAT
@@ -130,11 +136,21 @@ class BaseZeroDteStrategy(Strategy):
                 else str(event.order_side)
             ),
         }
+        if commission := getattr(event, "commission", None):
+            fill_payload["commission"] = str(commission)
         self._journal.record(
             GateStage.FILL,
             ref_id=self._active_intent_id,
             payload=fill_payload,
             strategy_id=self._strategy_id,
+        )
+        realized = self.portfolio.realized_pnl(event.instrument_id)
+        realized_decimal = _money_decimal(realized) if realized is not None else None
+        self._learning.on_order_filled(
+            event,
+            intent=self._active_intent,
+            intent_id=self._active_intent_id,
+            realized_pnl=realized_decimal,
         )
         self._journal_pnl(event.instrument_id)
         if self._state == StrategyState.PENDING_ENTRY:
@@ -323,6 +339,14 @@ class BaseZeroDteStrategy(Strategy):
         self._active_intent_id = intent.intent_id
         self._active_intent = intent
         self._transition(StrategyState.PENDING_ENTRY, reason="submit")
+        entry_mid = intent.rationale.get("net_debit")
+        if entry_mid is None:
+            entry_mid = intent.rationale.get("underlying_mid")
+        self._learning.register_entry(
+            intent,
+            quote_mid=float(entry_mid) if entry_mid is not None else None,
+            greeks=intent.projected_greeks or None,
+        )
         self._journal.record(
             GateStage.LIFECYCLE,
             ref_id=intent.intent_id,

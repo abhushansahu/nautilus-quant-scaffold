@@ -5,6 +5,7 @@ from uuid import UUID
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 
+from nautilus_zerodte.config.schema import FeeScheduleConfig
 from nautilus_zerodte.models.enums import GateStage, StrategyState, VenueAdapter
 from nautilus_zerodte.models.trade_intent import TradeIntent
 from nautilus_zerodte.strategies.base import BaseZeroDteStrategy, BaseZeroDteStrategyConfig
@@ -51,6 +52,7 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
                 underlying_symbol=underlying_symbol,
                 option_series_expiry=config.option_series_expiry,
                 settlement_currency=config.settlement_currency,
+                fee_schedule=FeeScheduleConfig.model_validate(config.fee_schedule or {}),
             )
 
     def _subscribe_market_data(self) -> None:

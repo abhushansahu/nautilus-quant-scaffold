@@ -5,6 +5,8 @@ from typing import Any
 
 from nautilus_trader.model.data import nautilus_pyo3
 
+from nautilus_zerodte.config.schema import FeeScheduleConfig
+from nautilus_zerodte.costs.deribit import deribit_edge_after_cost_bps
 from nautilus_zerodte.strategies.selectors.base import SpreadStructure
 
 
@@ -73,15 +75,18 @@ def _edge_after_cost_bps(
     net_debit: float,
     low_spread_bps: float,
     high_spread_bps: float,
+    fee_schedule: FeeScheduleConfig,
 ) -> float:
-    """Intrinsic spread value vs executable debit, minus half-spread cost (bps of debit)."""
-    if net_debit <= 0 or underlying <= 0:
-        return 0.0
-    spread_intrinsic_usd = max(0.0, underlying - low_strike) - max(0.0, underlying - high_strike)
-    theoretical_value_btc = spread_intrinsic_usd / underlying
-    edge_before_cost_bps = ((theoretical_value_btc - net_debit) / net_debit) * 10_000
-    spread_cost_bps = (low_spread_bps + high_spread_bps) / 2
-    return edge_before_cost_bps - spread_cost_bps
+    """Intrinsic spread value vs executable debit, minus spread, slippage, and commission."""
+    return deribit_edge_after_cost_bps(
+        underlying=underlying,
+        low_strike=low_strike,
+        high_strike=high_strike,
+        net_debit=net_debit,
+        low_spread_bps=low_spread_bps,
+        high_spread_bps=high_spread_bps,
+        fee_schedule=fee_schedule,
+    )
 
 
 def _underlying_price(option_chain_slice, atm: float) -> float:  # noqa: ANN001
@@ -108,11 +113,13 @@ class DeribitStructureSelector:
         underlying_symbol: str = "BTC",
         expiry: str,
         settlement_currency: str = "BTC",
+        fee_schedule: FeeScheduleConfig | None = None,
     ) -> None:
         self._underlying_symbol = underlying_symbol
         self._expiry = expiry
         self._expiry_label = deribit_expiry_label(expiry)
         self._settlement_currency = settlement_currency
+        self._fee_schedule = fee_schedule or FeeScheduleConfig()
 
     @property
     def expiry_label(self) -> str:
@@ -151,10 +158,8 @@ class DeribitStructureSelector:
         if liquidity < min_liquidity_score:
             return None
 
-        low_bid = float(getattr(low_quote, "bid_price", 0) or 0)
         low_ask = float(getattr(low_quote, "ask_price", 0) or 0)
         high_bid = float(getattr(high_quote, "bid_price", 0) or 0)
-        high_ask = float(getattr(high_quote, "ask_price", 0) or 0)
         net_debit = (low_ask - high_bid) if low_ask and high_bid else 0.0
         if net_debit <= 0:
             return None
@@ -167,6 +172,7 @@ class DeribitStructureSelector:
             net_debit=net_debit,
             low_spread_bps=low_spread_bps,
             high_spread_bps=high_spread_bps,
+            fee_schedule=self._fee_schedule,
         )
 
         spread_id = deribit_call_spread_id(
@@ -183,6 +189,11 @@ class DeribitStructureSelector:
             "net_debit": net_debit,
             "underlying": underlying,
             "edge_after_cost_bps": edge_after_cost_bps,
+            "expected_commission_bps": (
+                self._fee_schedule.taker_fee * 10_000
+                if self._fee_schedule.entry_liquidity == "taker"
+                else self._fee_schedule.maker_fee * 10_000
+            ),
             "min_edge_after_cost_bps": min_edge_after_cost_bps,
             "expiry": self._expiry,
             "settlement_currency": self._settlement_currency,

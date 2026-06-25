@@ -58,3 +58,12 @@ def test_deribit_backtest_full_journal_trail(catalog_path: Path, tmp_path: Path)
         and "BTC-CS" in str(e.payload.get("instrument_id", ""))
     ]
     assert len(spread_submits) >= 1
+
+    learning = [e for e in entries if e.payload.get("event") == "LEARNING_RECORD"]
+    assert len(learning) >= 1
+    assert learning[0].payload.get("edge_predicted_bps") is not None
+    assert learning[0].payload.get("edge_realized_bps") is not None
+
+    fills = [e for e in entries if e.payload.get("event") == "FILL"]
+    assert len(fills) >= 1
+    assert any("commission" in f.payload for f in fills)

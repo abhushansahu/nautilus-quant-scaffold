@@ -1,0 +1,12 @@
+# Deribit BTC/ETH options fee schedule — single source of truth for pre-trade edge
+# and BacktestVenueConfig MakerTakerFeeModel (rates must match catalog instrument fees).
+#
+# Deribit charges a percentage of underlying notional per contract; NT stores maker/taker
+# rates on each instrument. Catalog fixtures use these defaults.
+
+fees:
+  model: maker_taker
+  maker_fee: 0.0003   # 0.03% — aligns with instrument.maker_fee in catalog
+  taker_fee: 0.0003   # 0.03% — IOC entry orders assumed taker
+  entry_liquidity: taker
+  expected_slippage_bps: 0.0  # half-spread already in edge math; extra slippage buffer

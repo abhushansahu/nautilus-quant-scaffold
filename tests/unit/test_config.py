@@ -29,6 +29,14 @@ def test_load_paper_btc_profile() -> None:
     assert config.subscriptions.chain_snapshot_interval_ms == 30_000
     assert config.deribit.testnet is True
     assert config.dry_run is True
+    assert config.fees.taker_fee == 0.0003
+    assert config.fees.maker_fee == 0.0003
+
+
+def test_load_backtest_btc_fees_overlay() -> None:
+    config = load_config("configs/profiles/backtest_btc.yaml")
+    assert config.fees.model == "maker_taker"
+    assert config.fees.taker_fee == 0.0003
 
 
 def test_layered_risk_overlay(tmp_path: Path) -> None:

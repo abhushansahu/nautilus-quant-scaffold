@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from nautilus_zerodte.config.schema import AppConfig
-from nautilus_zerodte.node.factory import _strategy_config
+from nautilus_zerodte.node.factory import (
+    _backtest_fee_model,
+    _backtest_venue_config,
+    _strategy_config,
+)
 
 
 def test_unknown_strategy_class_gets_gated_skeleton_config() -> None:
@@ -45,3 +49,19 @@ def test_reference_strategy_config_wiring() -> None:
     assert importable.config["backtest_plumbing"] is True
     assert importable.config["order_qty"] == 2
     assert importable.config["dry_run"] is True
+    assert importable.config["fee_schedule"]["taker_fee"] == 0.0003
+
+
+def test_deribit_backtest_fee_model_wired() -> None:
+    config = AppConfig(venue={"adapter": "DERIBIT", "name": "DERIBIT", "base_currency": "USD"})
+    fee_model = _backtest_fee_model(config)
+    assert fee_model is not None
+    assert "MakerTakerFeeModel" in fee_model.fee_model_path
+
+    venue = _backtest_venue_config(config)
+    assert venue.fee_model is not None
+
+
+def test_ib_backtest_no_fee_model() -> None:
+    config = AppConfig(venue={"adapter": "IB", "name": "NYSE", "base_currency": "USD"})
+    assert _backtest_fee_model(config) is None

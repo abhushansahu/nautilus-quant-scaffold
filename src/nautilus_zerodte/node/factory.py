@@ -7,6 +7,7 @@ from nautilus_trader.backtest.config import (
     BacktestEngineConfig,
     BacktestRunConfig,
     BacktestVenueConfig,
+    ImportableFeeModelConfig,
 )
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.config import ImportableActorConfig, ImportableStrategyConfig, LoggingConfig
@@ -58,6 +59,7 @@ def _reference_strategy_config(config: AppConfig) -> dict:
         **_gate_strategy_config(config),
         "dry_run": config.dry_run,
         "venue_adapter": config.venue.adapter.value,
+        "fee_schedule": config.fees.model_dump(mode="json"),
         "max_chain_snapshot_age_secs": config.operational.max_chain_snapshot_age_secs,
         "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
         "backtest_plumbing": config.reference.backtest_plumbing,
@@ -186,14 +188,28 @@ def _backtest_data_configs(
     return configs
 
 
+def _backtest_fee_model(config: AppConfig) -> ImportableFeeModelConfig | None:
+    if config.venue.adapter is not VenueAdapter.DERIBIT:
+        return None
+    if config.fees.model != "maker_taker":
+        return None
+    return ImportableFeeModelConfig(
+        fee_model_path="nautilus_trader.backtest.models.fee:MakerTakerFeeModel",
+        config_path="nautilus_trader.backtest.config:MakerTakerFeeModelConfig",
+        config={},
+    )
+
+
 def _backtest_venue_config(config: AppConfig) -> BacktestVenueConfig:
     currency = config.venue.base_currency
+    fee_model = _backtest_fee_model(config)
     return BacktestVenueConfig(
         name=config.venue.name,
         oms_type="HEDGING",
         account_type=config.venue.account_type,
         base_currency=currency,
         starting_balances=[f"100000 {currency}"],
+        fee_model=fee_model,
     )
 
 

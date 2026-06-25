@@ -43,6 +43,16 @@ class GateThresholdsConfig(BaseModel):
     min_liquidity_score: float = 0.5
 
 
+class FeeScheduleConfig(BaseModel):
+    """Venue fee schedule — single source for edge gate and BacktestVenueConfig FeeModel."""
+
+    model: str = "maker_taker"
+    maker_fee: float = 0.0003
+    taker_fee: float = 0.0003
+    entry_liquidity: str = "taker"
+    expected_slippage_bps: float = 0.0
+
+
 class OperationalConfig(BaseModel):
     max_underlying_quote_age_secs: float = 30.0
     max_chain_snapshot_age_secs: float = 90.0
@@ -91,6 +101,7 @@ class AppConfig(BaseModel):
     session: SessionConfig = Field(default_factory=SessionConfig)
     regime: RegimeConfig = Field(default_factory=RegimeConfig)
     gates: GateThresholdsConfig = Field(default_factory=GateThresholdsConfig)
+    fees: FeeScheduleConfig = Field(default_factory=FeeScheduleConfig)
     operational: OperationalConfig = Field(default_factory=OperationalConfig)
     strategy: StrategyRuntimeConfig = Field(default_factory=StrategyRuntimeConfig)
     reference: ReferenceStrategyConfig = Field(default_factory=ReferenceStrategyConfig)

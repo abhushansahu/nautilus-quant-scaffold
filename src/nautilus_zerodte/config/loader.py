@@ -26,6 +26,15 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _fee_overlay_name(merged: dict[str, Any]) -> str | None:
+    if overlay := merged.get("fees_overlay"):
+        return str(overlay)
+    adapter = merged.get("venue", {}).get("adapter", VenueAdapter.IB.value)
+    if str(adapter).upper() == VenueAdapter.DERIBIT.value:
+        return "deribit_options"
+    return None
+
+
 def _session_overlay_name(merged: dict[str, Any]) -> str:
     if overlay := merged.get("session_overlay"):
         return str(overlay)
@@ -77,6 +86,14 @@ def load_config(profile_path: Path | str) -> AppConfig:
         if layer.exists():
             merged = _deep_merge(merged, _load_yaml(layer))
 
+    fee_overlay = _fee_overlay_name(merged)
+    if fee_overlay:
+        fee_path = configs_root / "fees" / f"{fee_overlay}.yaml"
+        if fee_path.exists():
+            fee_data = _load_yaml(fee_path)
+            if fees := fee_data.get("fees"):
+                merged = _deep_merge(merged, {"fees": fees})
+
     session_overlay = _session_overlay_name(merged)
     session_path = configs_root / "session" / f"{session_overlay}.yaml"
     if session_path.exists():
@@ -87,5 +104,6 @@ def load_config(profile_path: Path | str) -> AppConfig:
         merged = _deep_merge(merged, _load_yaml(profile))
 
     merged.pop("session_overlay", None)
+    merged.pop("fees_overlay", None)
     merged = _apply_env_overrides(merged)
     return AppConfig.model_validate(merged)

@@ -56,12 +56,14 @@ def test_select_vertical_call_spread_from_chain() -> None:
     assert selection.low_strike == 70_000.0
     assert selection.high_strike == 75_000.0
     assert selection.liquidity_score > 0.0
-    # intrinsic spread ~0.0278 BTC, net_debit=0.0201, minus half-spread cost
-    assert selection.edge_after_cost_bps == pytest.approx(3782.0, abs=5.0)
+    # intrinsic spread ~0.0278 BTC, net_debit=0.0201, minus half-spread and commission (3 bps)
+    assert selection.edge_after_cost_bps == pytest.approx(3779.0, abs=5.0)
     assert selection.edge_after_cost_bps != 10.0
 
 
 def test_edge_after_cost_bps_from_quotes() -> None:
+    from nautilus_zerodte.config.schema import FeeScheduleConfig
+
     edge = _edge_after_cost_bps(
         underlying=72_000.0,
         low_strike=70_000.0,
@@ -69,8 +71,9 @@ def test_edge_after_cost_bps_from_quotes() -> None:
         net_debit=0.04,
         low_spread_bps=181.8,
         high_spread_bps=400.0,
+        fee_schedule=FeeScheduleConfig(),
     )
-    assert edge == pytest.approx(-3346.0, abs=5.0)
+    assert edge == pytest.approx(-3349.0, abs=5.0)
 
 
 def test_select_rejects_empty_chain() -> None:
