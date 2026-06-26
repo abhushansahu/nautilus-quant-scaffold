@@ -13,8 +13,11 @@ def resolve_structure_selector(
     venue_adapter: VenueAdapter,
     underlying_symbol: str,
     option_series_expiry: str | None,
-    settlement_currency: str = "BTC",
-    fee_schedule: FeeScheduleConfig | None = None,
+    settlement_currency: str,
+    fee_schedule: FeeScheduleConfig,
+    venue: str,
+    market_close_utc: str,
+    option_multiplier: float,
 ) -> StructureSelector | None:
     """Resolve a structure selector from config or venue adapter."""
     resolved = selector_name.strip().lower()
@@ -39,5 +42,8 @@ def resolve_structure_selector(
             underlying_symbol=underlying_symbol,
             expiry=option_series_expiry,
             fee_schedule=fee_schedule,
+            venue=venue,
+            market_close_utc=market_close_utc,
+            multiplier=option_multiplier,
         )
     return None

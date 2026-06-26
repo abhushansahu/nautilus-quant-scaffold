@@ -18,7 +18,16 @@ from nautilus_trader.model.enums import InstrumentClass
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
 
-from nautilus_zerodte.config.schema import AppConfig, ReferenceStrategyConfig, StrategyRuntimeConfig
+from nautilus_zerodte.config.schema import (
+    AppConfig,
+    ReferenceStrategyConfig,
+    StrategyRuntimeConfig,
+    resolved_option_expiry_time,
+    resolved_option_multiplier,
+    resolved_option_series_id,
+    resolved_option_venue,
+    resolved_settlement_currency,
+)
 from nautilus_zerodte.journal.service import Journal
 from nautilus_zerodte.models.enums import GateStage, VenueAdapter
 from nautilus_zerodte.node.adapters.registry import (
@@ -26,6 +35,7 @@ from nautilus_zerodte.node.adapters.registry import (
     build_venue_client_wiring,
     register_venue_factories,
 )
+from nautilus_zerodte.node.streaming import build_nt_streaming_config
 
 _STRATEGY_PATHS: dict[str, tuple[str, str]] = {
     "skeleton": (
@@ -75,6 +85,7 @@ def _reference_strategy_config(
     reference: ReferenceStrategyConfig,
     runtime: StrategyRuntimeConfig | None = None,
 ) -> dict:
+    runtime = runtime or config.strategy
     return {
         **_gate_strategy_config(config, runtime),
         "dry_run": config.dry_run,
@@ -84,10 +95,14 @@ def _reference_strategy_config(
         "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
         "backtest_plumbing": reference.backtest_plumbing,
         "structure_selector": reference.structure_selector,
-        "option_series_id": reference.option_series_id,
+        "option_series_id": resolved_option_series_id(
+            config, underlying=runtime.underlying, reference=reference
+        ),
         "option_series_expiry": reference.option_series_expiry,
-        "option_series_expiry_time_utc": reference.option_series_expiry_time_utc,
-        "settlement_currency": reference.settlement_currency,
+        "option_series_expiry_time_utc": resolved_option_expiry_time(config, reference),
+        "option_venue": resolved_option_venue(config, reference),
+        "option_multiplier": resolved_option_multiplier(config, reference),
+        "settlement_currency": resolved_settlement_currency(config, reference),
         "strike_width": reference.strike_width,
         "order_qty": reference.order_qty,
         "take_profit_pct": reference.take_profit_pct,
@@ -163,6 +178,28 @@ def _actor_configs(config: AppConfig) -> list[ImportableActorConfig]:
                     "diversification": config.diversification.model_dump(mode="json"),
                     "approval": config.approval.model_dump(mode="json"),
                     "batch_interval_ms": config.diversification.batch_interval_ms,
+                },
+            )
+        )
+    if config.ingestion.enabled:
+        primary = config.resolved_strategies()[0]
+        reference = primary.reference or config.reference
+        actors.append(
+            ImportableActorConfig(
+                actor_path="nautilus_zerodte.actors.ingestion:IngestionPlannerActor",
+                config_path="nautilus_zerodte.actors.ingestion:IngestionPlannerActorConfig",
+                config={
+                    "underlying": primary.underlying,
+                    "option_series_id": resolved_option_series_id(
+                        config,
+                        underlying=primary.underlying,
+                        reference=reference,
+                    ),
+                    "hedge_perp_instrument": reference.hedge_perp_instrument,
+                    "chain_snapshot_interval_ms": config.subscriptions.chain_snapshot_interval_ms,
+                    "max_chain_subscriptions": config.ingestion.budget.max_chain_subscriptions,
+                    "max_snapshot_interval_ms": config.ingestion.budget.max_snapshot_interval_ms,
+                    "min_snapshot_interval_ms": config.ingestion.budget.min_snapshot_interval_ms,
                 },
             )
         )
@@ -299,11 +336,15 @@ def build_backtest_node(config: AppConfig, catalog_path: Path | str) -> Backtest
 def build_trading_node(config: AppConfig) -> TradingNode:
     """Build a TradingNode with actors, strategy, and venue adapter wiring."""
     journal_path = config.resolved_journal_path()
+    streaming = (
+        build_nt_streaming_config(config.streaming) if config.streaming.enabled else None
+    )
     node_config = TradingNodeConfig(
         trader_id=config.trader_id,
         logging=LoggingConfig(log_level="ERROR"),
         actors=_actor_configs(config),
         strategies=_strategy_configs(config, journal_path),
+        streaming=streaming,
     )
 
     wiring = build_venue_client_wiring(config, dry_run=config.dry_run)

@@ -5,7 +5,7 @@ from uuid import UUID
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 
-from nautilus_zerodte.config.schema import FeeScheduleConfig
+from nautilus_zerodte.config.schema import FeeScheduleConfig, underlying_symbol_from_id
 from nautilus_zerodte.models.enums import GateStage, StrategyState, VenueAdapter
 from nautilus_zerodte.models.trade_intent import TradeIntent
 from nautilus_zerodte.strategies.base import BaseZeroDteStrategy, BaseZeroDteStrategyConfig
@@ -20,8 +20,10 @@ class ReferenceZeroDteStrategyConfig(BaseZeroDteStrategyConfig, frozen=True):
     venue_adapter: str = "IB"
     option_series_id: str | None = None
     option_series_expiry: str | None = None
-    option_series_expiry_time_utc: str = "08:00"
-    settlement_currency: str = "BTC"
+    option_series_expiry_time_utc: str | None = None
+    option_venue: str | None = None
+    option_multiplier: float | None = None
+    settlement_currency: str | None = None
     strike_width: int = 5
     order_qty: float = 1.0
     take_profit_pct: float = 0.25
@@ -43,9 +45,24 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
         self._selector: StructureSelector | None = None
         if not config.backtest_plumbing:
             adapter = VenueAdapter(config.venue_adapter.upper())
-            underlying_symbol = config.option_series_id or config.underlying.split(".")[0]
-            if "-" in underlying_symbol:
-                underlying_symbol = underlying_symbol.split("-")[0]
+            if config.option_series_expiry is None:
+                msg = "option_series_expiry is required when structure selection is enabled"
+                raise ValueError(msg)
+            if config.settlement_currency is None:
+                msg = "settlement_currency must be supplied via profile or factory wiring"
+                raise ValueError(msg)
+            if config.option_series_expiry_time_utc is None:
+                msg = "option_series_expiry_time_utc must be supplied via profile or factory wiring"
+                raise ValueError(msg)
+            if config.option_venue is None:
+                msg = "option_venue must be supplied via profile or factory wiring"
+                raise ValueError(msg)
+            if config.option_multiplier is None:
+                msg = "option_multiplier must be supplied via profile or factory wiring"
+                raise ValueError(msg)
+            underlying_symbol = config.option_series_id or underlying_symbol_from_id(
+                config.underlying
+            )
             self._selector = resolve_structure_selector(
                 config.structure_selector,
                 venue_adapter=adapter,
@@ -53,6 +70,9 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
                 option_series_expiry=config.option_series_expiry,
                 settlement_currency=config.settlement_currency,
                 fee_schedule=FeeScheduleConfig.model_validate(config.fee_schedule or {}),
+                venue=config.option_venue,
+                market_close_utc=config.option_series_expiry_time_utc,
+                option_multiplier=config.option_multiplier,
             )
 
     def _subscribe_market_data(self) -> None:
@@ -67,11 +87,14 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
         if self._ref_config.option_series_expiry is None:
             return
         adapter = VenueAdapter(self._ref_config.venue_adapter.upper())
+        option_series_id = self._ref_config.option_series_id or underlying_symbol_from_id(
+            self.config.underlying
+        )
         if adapter is VenueAdapter.DERIBIT:
             from nautilus_zerodte.strategies.selectors.deribit import deribit_option_series_id
 
             series_id = deribit_option_series_id(
-                underlying=self._ref_config.option_series_id or "BTC",
+                underlying=option_series_id,
                 settlement_currency=self._ref_config.settlement_currency,
                 expiry=self._ref_config.option_series_expiry,
                 expiry_time_utc=self._ref_config.option_series_expiry_time_utc,
@@ -80,7 +103,9 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
             from nautilus_zerodte.strategies.selectors.ib import ib_option_series_id
 
             series_id = ib_option_series_id(
-                underlying=self._ref_config.option_series_id or "SPY",
+                underlying=option_series_id,
+                venue=self._ref_config.option_venue,
+                settlement_currency=self._ref_config.settlement_currency,
                 expiry=self._ref_config.option_series_expiry,
                 market_close_utc=self._ref_config.option_series_expiry_time_utc,
             )

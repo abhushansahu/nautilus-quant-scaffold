@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from nautilus_zerodte.config.schema import FeeScheduleConfig
 from nautilus_zerodte.strategies.selectors.deribit import (
     DeribitStructureSelector,
     _edge_after_cost_bps,
@@ -11,6 +12,15 @@ from nautilus_zerodte.strategies.selectors.deribit import (
     deribit_call_spread_id,
     deribit_expiry_label,
 )
+
+
+def _deribit_selector() -> DeribitStructureSelector:
+    return DeribitStructureSelector(
+        underlying_symbol="BTC",
+        expiry="2026-05-19",
+        settlement_currency="BTC",
+        fee_schedule=FeeScheduleConfig(),
+    )
 
 
 def test_deribit_expiry_label() -> None:
@@ -28,7 +38,7 @@ def test_deribit_call_spread_id() -> None:
 
 
 def test_select_vertical_call_spread_from_chain() -> None:
-    selector = DeribitStructureSelector(underlying_symbol="BTC", expiry="2026-05-19")
+    selector = _deribit_selector()
     chain = MagicMock()
     chain.is_empty.return_value = False
     chain.atm_strike = 70_000.0
@@ -77,7 +87,7 @@ def test_edge_after_cost_bps_from_quotes() -> None:
 
 
 def test_select_rejects_empty_chain() -> None:
-    selector = DeribitStructureSelector(underlying_symbol="BTC", expiry="2026-05-19")
+    selector = _deribit_selector()
     chain = MagicMock()
     chain.is_empty.return_value = True
 

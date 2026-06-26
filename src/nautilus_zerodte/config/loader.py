@@ -102,6 +102,10 @@ def load_config(profile_path: Path | str) -> AppConfig:
     ):
         merged = _deep_merge(merged, _load_yaml(diversification_path))
 
+    streaming_path = configs_root / "streaming" / "default.yaml"
+    if streaming_path.exists():
+        merged = _deep_merge(merged, _load_yaml(streaming_path))
+
     session_overlay = _session_overlay_name(merged)
     session_path = configs_root / "session" / f"{session_overlay}.yaml"
     if session_path.exists():

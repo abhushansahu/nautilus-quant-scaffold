@@ -27,6 +27,8 @@ htmlcov/
 
 # Run artifacts
 runs/
+data/streaming/
+data/catalogs/
 
 # Local agent tooling
 headroom_memory.db

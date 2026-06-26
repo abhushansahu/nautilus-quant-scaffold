@@ -1,0 +1,11 @@
+# Phase 9 — optional live catalog capture (HOT/WARM tiers only; off by default)
+
+streaming:
+  enabled: false
+  stream_path: data/streaming/latest
+  permanent_catalog_path: data/catalogs/latest
+  include_types:
+    - nautilus_trader.model.data:QuoteTick
+    - nautilus_trader.model.data:OptionGreeks
+  rotation_mode: NO_ROTATION
+  flush_interval_ms: 1000

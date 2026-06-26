@@ -14,6 +14,25 @@ from nautilus_zerodte.strategies.selectors.ib import (
 )
 
 
+def _ib_fee_schedule() -> FeeScheduleConfig:
+    return FeeScheduleConfig(
+        model="fixed_per_contract",
+        commission_per_contract=0.65,
+        contracts_per_spread=2,
+    )
+
+
+def _ib_selector() -> IbStructureSelector:
+    return IbStructureSelector(
+        underlying_symbol="SPY",
+        expiry="2024-01-02",
+        venue="NYSE",
+        market_close_utc="21:00",
+        fee_schedule=_ib_fee_schedule(),
+        multiplier=100.0,
+    )
+
+
 def test_ib_expiry_label() -> None:
     assert ib_expiry_label("2024-01-02") == "20240102"
 
@@ -60,7 +79,7 @@ def test_ib_edge_after_cost_includes_commission() -> None:
 
 
 def test_select_vertical_call_spread_from_chain() -> None:
-    selector = IbStructureSelector(underlying_symbol="SPY", expiry="2024-01-02")
+    selector = _ib_selector()
     chain = MagicMock()
     chain.is_empty.return_value = False
     chain.atm_strike = 400.0
@@ -91,7 +110,7 @@ def test_select_vertical_call_spread_from_chain() -> None:
 
 
 def test_select_rejects_empty_chain() -> None:
-    selector = IbStructureSelector(underlying_symbol="SPY", expiry="2024-01-02")
+    selector = _ib_selector()
     chain = MagicMock()
     chain.is_empty.return_value = True
 

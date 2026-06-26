@@ -109,14 +109,53 @@ class ReferenceStrategyConfig(BaseModel):
     structure_selector: str = "auto"
     option_series_id: str | None = None
     option_series_expiry: str | None = None
-    option_series_expiry_time_utc: str = "08:00"
-    settlement_currency: str = "BTC"
+    option_series_expiry_time_utc: str | None = None
+    option_venue: str | None = None
+    option_multiplier: float | None = None
+    settlement_currency: str | None = None
     strike_width: int = 5
     order_qty: float = 1.0
     take_profit_pct: float = 0.25
     stop_loss_pct: float = 0.50
     hedge_perp_instrument: str | None = None
     hedge_delta_band: float = 0.30
+
+
+class StreamCaptureConfig(BaseModel):
+    """Operator path for NT StreamingFeatherWriter — off by default."""
+
+    enabled: bool = False
+    stream_path: str = "data/streaming/latest"
+    permanent_catalog_path: str = "data/catalogs/latest"
+    include_types: list[str] = Field(
+        default_factory=lambda: [
+            "nautilus_trader.model.data:QuoteTick",
+            "nautilus_trader.model.data:OptionGreeks",
+        ]
+    )
+    rotation_mode: str = "NO_ROTATION"
+    flush_interval_ms: int | None = None
+
+
+class IngestionBudgetConfig(BaseModel):
+    max_chain_subscriptions: int = 3
+    max_snapshot_interval_ms: int = 300_000
+    min_snapshot_interval_ms: int = 30_000
+
+
+class IngestionConfig(BaseModel):
+    """Optional subscription planner — emits plans only, no fetch logic."""
+
+    enabled: bool = False
+    budget: IngestionBudgetConfig = Field(default_factory=IngestionBudgetConfig)
+
+
+def underlying_symbol_from_id(instrument_id: str) -> str:
+    """Derive option underlying symbol from an NT instrument id string."""
+    symbol = instrument_id.split(".")[0]
+    if "-" in symbol:
+        return symbol.split("-")[0]
+    return symbol
 
 
 class AppConfig(BaseModel):
@@ -140,6 +179,8 @@ class AppConfig(BaseModel):
     subscriptions: SubscriptionConfig = Field(default_factory=SubscriptionConfig)
     ib: InteractiveBrokersConfig = Field(default_factory=InteractiveBrokersConfig)
     deribit: DeribitConfig = Field(default_factory=DeribitConfig)
+    streaming: StreamCaptureConfig = Field(default_factory=StreamCaptureConfig)
+    ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
 
     def resolved_journal_path(self, runs_dir: Path | None = None) -> Path:
         path = Path(self.journal.path)
@@ -159,3 +200,58 @@ class AppConfig(BaseModel):
     def selector_enabled(self) -> bool:
         strategies = self.resolved_strategies()
         return self.diversification.enabled or len(strategies) > 1
+
+
+def resolved_settlement_currency(
+    config: AppConfig,
+    reference: ReferenceStrategyConfig | None = None,
+) -> str:
+    ref = reference or config.reference
+    if ref.settlement_currency:
+        return ref.settlement_currency
+    return config.venue.base_currency
+
+
+def resolved_option_expiry_time(
+    config: AppConfig,
+    reference: ReferenceStrategyConfig | None = None,
+) -> str:
+    ref = reference or config.reference
+    if ref.option_series_expiry_time_utc:
+        return ref.option_series_expiry_time_utc
+    return config.session.market_close_utc
+
+
+def resolved_option_venue(
+    config: AppConfig,
+    reference: ReferenceStrategyConfig | None = None,
+) -> str:
+    ref = reference or config.reference
+    if ref.option_venue:
+        return ref.option_venue
+    return config.venue.name
+
+
+def resolved_option_multiplier(
+    config: AppConfig,
+    reference: ReferenceStrategyConfig | None = None,
+) -> float:
+    ref = reference or config.reference
+    if ref.option_multiplier is not None:
+        return ref.option_multiplier
+    if config.venue.adapter is VenueAdapter.IB:
+        return 100.0
+    return 1.0
+
+
+def resolved_option_series_id(
+    config: AppConfig,
+    *,
+    underlying: str | None = None,
+    reference: ReferenceStrategyConfig | None = None,
+) -> str:
+    ref = reference or config.reference
+    if ref.option_series_id:
+        return ref.option_series_id
+    base = underlying or config.resolved_strategies()[0].underlying
+    return underlying_symbol_from_id(base)

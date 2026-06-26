@@ -50,6 +50,9 @@ def test_reference_strategy_config_wiring() -> None:
     assert importable.config["order_qty"] == 2
     assert importable.config["dry_run"] is True
     assert importable.config["fee_schedule"]["taker_fee"] == 0.0003
+    assert importable.config["option_series_id"] == "SPY"
+    assert importable.config["option_venue"] == "NYSE"
+    assert importable.config["option_multiplier"] == 100.0
 
 
 def test_deribit_backtest_fee_model_wired() -> None:

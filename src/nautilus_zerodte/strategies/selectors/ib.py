@@ -101,23 +101,19 @@ class IbStructureSelector:
     def __init__(
         self,
         *,
-        underlying_symbol: str = "SPY",
+        underlying_symbol: str,
         expiry: str,
-        venue: str = "NYSE",
-        market_close_utc: str = "21:00",
-        fee_schedule: FeeScheduleConfig | None = None,
-        multiplier: float = 100.0,
+        venue: str,
+        market_close_utc: str,
+        fee_schedule: FeeScheduleConfig,
+        multiplier: float,
     ) -> None:
         self._underlying_symbol = underlying_symbol
         self._expiry = expiry
         self._expiry_label = ib_expiry_label(expiry)
         self._venue = venue
         self._market_close_utc = market_close_utc
-        self._fee_schedule = fee_schedule or FeeScheduleConfig(
-            model="fixed_per_contract",
-            commission_per_contract=0.65,
-            contracts_per_spread=2,
-        )
+        self._fee_schedule = fee_schedule
         self._multiplier = multiplier
 
     @property

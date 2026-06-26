@@ -110,16 +110,16 @@ class DeribitStructureSelector:
     def __init__(
         self,
         *,
-        underlying_symbol: str = "BTC",
+        underlying_symbol: str,
         expiry: str,
-        settlement_currency: str = "BTC",
-        fee_schedule: FeeScheduleConfig | None = None,
+        settlement_currency: str,
+        fee_schedule: FeeScheduleConfig,
     ) -> None:
         self._underlying_symbol = underlying_symbol
         self._expiry = expiry
         self._expiry_label = deribit_expiry_label(expiry)
         self._settlement_currency = settlement_currency
-        self._fee_schedule = fee_schedule or FeeScheduleConfig()
+        self._fee_schedule = fee_schedule
 
     @property
     def expiry_label(self) -> str:

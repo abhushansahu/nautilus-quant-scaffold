@@ -11,6 +11,7 @@ from nautilus_zerodte.models.trade_intent import TradeIntent
 
 SESSION_PHASE_TOPIC = "data.session.phase"
 REGIME_TAG_TOPIC = "data.regime.tag"
+INGESTION_PLAN_TOPIC = "data.ingestion.plan"
 TRADE_INTENT_TOPIC = "data.trade.intent"
 TRADE_INTENT_APPROVED_TOPIC = "data.trade.intent.approved"
 TRADE_INTENT_REJECTED_TOPIC = "data.trade.intent.rejected"
@@ -27,6 +28,11 @@ class SessionPhaseSnapshot:
 @dataclass(frozen=True, slots=True)
 class RegimeTagSnapshot:
     regime_tag: str
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionPlanSnapshot:
+    plan: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
