@@ -29,9 +29,11 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 def _fee_overlay_name(merged: dict[str, Any]) -> str | None:
     if overlay := merged.get("fees_overlay"):
         return str(overlay)
-    adapter = merged.get("venue", {}).get("adapter", VenueAdapter.IB.value)
-    if str(adapter).upper() == VenueAdapter.DERIBIT.value:
+    adapter = str(merged.get("venue", {}).get("adapter", VenueAdapter.IB.value)).upper()
+    if adapter == VenueAdapter.DERIBIT.value:
         return "deribit_options"
+    if adapter == VenueAdapter.IB.value:
+        return "ib_options"
     return None
 
 

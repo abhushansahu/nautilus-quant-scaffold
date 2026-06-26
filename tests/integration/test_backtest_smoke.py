@@ -11,7 +11,7 @@ from nautilus_zerodte.node.factory import build_backtest_node, build_trading_nod
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "tests" / "fixtures" / "catalog"
-PROFILE_PATH = REPO_ROOT / "configs" / "profiles" / "paper_spy.yaml"
+PROFILE_PATH = REPO_ROOT / "configs" / "profiles" / "backtest_reference.yaml"
 PAPER_BTC_PATH = REPO_ROOT / "configs" / "profiles" / "paper_btc.yaml"
 
 

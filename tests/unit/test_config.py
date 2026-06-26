@@ -10,11 +10,24 @@ from nautilus_zerodte.models.enums import VenueAdapter
 def test_load_paper_spy_profile() -> None:
     config = load_config("configs/profiles/paper_spy.yaml")
     assert config.strategy.underlying == "SPY.NYSE"
-    assert config.strategy.strategy_id == "skeleton-001"
+    assert config.strategy.strategy_id == "reference-001"
+    assert config.strategy.strategy_class == "reference"
+    assert config.venue.adapter is VenueAdapter.IB
     assert config.session.blackout_minutes_before_close == 30
     assert config.session.expiry_mode.value == "us_equity_close"
-    assert config.venue.adapter is VenueAdapter.IB
+    assert config.reference.structure_selector == "ib"
+    assert config.fees.model == "fixed_per_contract"
+    assert config.fees.commission_per_contract == 0.65
+    assert config.dry_run is True
     assert config.risk.version == "default"
+
+
+def test_load_backtest_spy_fees_overlay() -> None:
+    config = load_config("configs/profiles/backtest_spy.yaml")
+    assert config.venue.adapter is VenueAdapter.IB
+    assert config.fees.model == "fixed_per_contract"
+    assert config.fees.commission_per_contract == 0.65
+    assert config.reference.structure_selector == "ib"
 
 
 def test_load_paper_btc_profile() -> None:

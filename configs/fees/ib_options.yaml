@@ -1,0 +1,10 @@
+# IB equity options fee schedule — single source of truth for pre-trade edge
+# and BacktestVenueConfig FixedFeeModel (per-contract commission).
+#
+# IB charges a fixed USD commission per contract leg; vertical spreads incur two legs.
+
+fees:
+  model: fixed_per_contract
+  commission_per_contract: 0.65
+  contracts_per_spread: 2
+  expected_slippage_bps: 0.0

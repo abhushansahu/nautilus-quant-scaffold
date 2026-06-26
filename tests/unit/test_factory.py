@@ -62,6 +62,20 @@ def test_deribit_backtest_fee_model_wired() -> None:
     assert venue.fee_model is not None
 
 
-def test_ib_backtest_no_fee_model() -> None:
-    config = AppConfig(venue={"adapter": "IB", "name": "NYSE", "base_currency": "USD"})
-    assert _backtest_fee_model(config) is None
+def test_ib_backtest_fixed_fee_model_wired() -> None:
+    config = AppConfig(
+        venue={"adapter": "IB", "name": "NYSE", "base_currency": "USD"},
+        reference={"backtest_plumbing": False},
+        fees={
+            "model": "fixed_per_contract",
+            "commission_per_contract": 0.65,
+            "contracts_per_spread": 2,
+        },
+    )
+    fee_model = _backtest_fee_model(config)
+    assert fee_model is not None
+    assert "FixedFeeModel" in fee_model.fee_model_path
+    assert fee_model.config["commission"] == "0.65 USD"
+
+    venue = _backtest_venue_config(config)
+    assert venue.fee_model is not None

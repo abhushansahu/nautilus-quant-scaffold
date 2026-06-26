@@ -35,6 +35,6 @@ Grep: `"event": "LEARNING_RECORD"`.
 
 ## Non-goals (Phase 6)
 
-- IB per-contract `FixedFeeModel` — Phase 8
+- IB per-contract `FixedFeeModel` — Phase 8 ✓
 - ML calibration — `calibrate()` returns empty adjustments
 - Multi-strategy attribution fan-in — Phase 7

@@ -20,6 +20,11 @@ backtest-btc:
 		--config configs/profiles/backtest_btc.yaml \
 		--catalog tests/fixtures/catalog_deribit
 
+backtest-spy:
+	uv run nautilus-zerodte backtest \
+		--config configs/profiles/backtest_spy.yaml \
+		--catalog tests/fixtures/catalog
+
 paper:
 	uv run nautilus-zerodte paper \
 		--config configs/profiles/paper_spy.yaml

@@ -66,14 +66,26 @@ class ReferenceZeroDteStrategy(BaseZeroDteStrategy):
             return
         if self._ref_config.option_series_expiry is None:
             return
-        from nautilus_zerodte.strategies.selectors.deribit import deribit_option_series_id
+        adapter = VenueAdapter(self._ref_config.venue_adapter.upper())
+        if adapter is VenueAdapter.DERIBIT:
+            from nautilus_zerodte.strategies.selectors.deribit import deribit_option_series_id
 
-        series_id = deribit_option_series_id(
-            underlying=self._ref_config.option_series_id or "BTC",
-            settlement_currency=self._ref_config.settlement_currency,
-            expiry=self._ref_config.option_series_expiry,
-            expiry_time_utc=self._ref_config.option_series_expiry_time_utc,
-        )
+            series_id = deribit_option_series_id(
+                underlying=self._ref_config.option_series_id or "BTC",
+                settlement_currency=self._ref_config.settlement_currency,
+                expiry=self._ref_config.option_series_expiry,
+                expiry_time_utc=self._ref_config.option_series_expiry_time_utc,
+            )
+        elif adapter is VenueAdapter.IB:
+            from nautilus_zerodte.strategies.selectors.ib import ib_option_series_id
+
+            series_id = ib_option_series_id(
+                underlying=self._ref_config.option_series_id or "SPY",
+                expiry=self._ref_config.option_series_expiry,
+                market_close_utc=self._ref_config.option_series_expiry_time_utc,
+            )
+        else:
+            return
         self.subscribe_option_chain(
             series_id,
             snapshot_interval_ms=self.config.chain_snapshot_interval_ms,

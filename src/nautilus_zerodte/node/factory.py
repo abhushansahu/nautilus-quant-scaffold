@@ -188,13 +188,15 @@ def _backtest_data_configs(
     """Build BacktestDataConfig entries for catalog contents."""
     catalog = ParquetDataCatalog(str(catalog_path))
     data_types = set(catalog.list_data_types())
-    use_deribit_chain = (
-        config.venue.adapter is VenueAdapter.DERIBIT
+    primary = config.resolved_strategies()[0]
+    use_option_chain = (
+        primary.strategy_class == "reference"
         and not config.reference.backtest_plumbing
         and "option_greeks" in data_types
+        and config.venue.adapter in {VenueAdapter.DERIBIT, VenueAdapter.IB}
     )
 
-    if not use_deribit_chain:
+    if not use_option_chain:
         return [
             BacktestDataConfig(
                 catalog_path=str(catalog_path),
@@ -237,15 +239,26 @@ def _backtest_data_configs(
 
 
 def _backtest_fee_model(config: AppConfig) -> ImportableFeeModelConfig | None:
-    if config.venue.adapter is not VenueAdapter.DERIBIT:
+    if config.reference.backtest_plumbing:
         return None
-    if config.fees.model != "maker_taker":
-        return None
-    return ImportableFeeModelConfig(
-        fee_model_path="nautilus_trader.backtest.models.fee:MakerTakerFeeModel",
-        config_path="nautilus_trader.backtest.config:MakerTakerFeeModelConfig",
-        config={},
-    )
+    if config.venue.adapter is VenueAdapter.DERIBIT:
+        if config.fees.model != "maker_taker":
+            return None
+        return ImportableFeeModelConfig(
+            fee_model_path="nautilus_trader.backtest.models.fee:MakerTakerFeeModel",
+            config_path="nautilus_trader.backtest.config:MakerTakerFeeModelConfig",
+            config={},
+        )
+    if config.venue.adapter is VenueAdapter.IB:
+        if config.fees.model != "fixed_per_contract":
+            return None
+        currency = config.venue.base_currency
+        return ImportableFeeModelConfig(
+            fee_model_path="nautilus_trader.backtest.models.fee:FixedFeeModel",
+            config_path="nautilus_trader.backtest.config:FixedFeeModelConfig",
+            config={"commission": f"{config.fees.commission_per_contract} {currency}"},
+        )
+    return None
 
 
 def _backtest_venue_config(config: AppConfig) -> BacktestVenueConfig:

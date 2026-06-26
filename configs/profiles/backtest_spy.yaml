@@ -1,6 +1,6 @@
-# IB equity 0DTE operator profile — secondary venue (Phase 8)
+# Backtest profile — IB SPY 0DTE BAG spread on extended catalog fixture
 
-trader_id: PAPER-SPY-001
+trader_id: BACKTEST-SPY-001
 
 venue:
   adapter: IB
@@ -22,10 +22,26 @@ reference:
   strike_width: 5
   order_qty: 1
 
+subscriptions:
+  chain_snapshot_interval_ms: 1000
+
 operational:
   require_chain_snapshot: true
+  max_chain_snapshot_age_secs: 120
+
+gates:
+  min_edge_after_cost_bps: -5000.0
+  min_liquidity_score: 0.0
+
+regime:
+  blocked_regimes: []
+
+session:
+  expiry_mode: us_equity_close
+  blackout_minutes_before_close: 30
+  market_close_utc: "21:00"
 
 journal:
   path: runs/latest.jsonl
 
-dry_run: true
+dry_run: false

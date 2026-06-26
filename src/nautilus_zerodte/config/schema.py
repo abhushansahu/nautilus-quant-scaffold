@@ -51,6 +51,8 @@ class FeeScheduleConfig(BaseModel):
     maker_fee: float = 0.0003
     taker_fee: float = 0.0003
     entry_liquidity: str = "taker"
+    commission_per_contract: float = 0.65
+    contracts_per_spread: int = 2
     expected_slippage_bps: float = 0.0
 
 

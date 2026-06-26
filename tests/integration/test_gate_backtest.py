@@ -11,7 +11,7 @@ from nautilus_zerodte.node.factory import run_backtest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "tests" / "fixtures" / "catalog"
-PROFILE_PATH = REPO_ROOT / "configs" / "profiles" / "paper_spy.yaml"
+PROFILE_PATH = REPO_ROOT / "configs" / "profiles" / "backtest_reference.yaml"
 
 
 @pytest.fixture
