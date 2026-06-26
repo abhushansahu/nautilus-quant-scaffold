@@ -37,11 +37,9 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         DeribitLiveDataClientFactory,
         DeribitLiveExecClientFactory,
     )
-    from nautilus_trader.core.nautilus_pyo3.deribit import DeribitEnvironment, DeribitProductType
-
-    environment = (
-        DeribitEnvironment.TESTNET if config.deribit.testnet else DeribitEnvironment.MAINNET
-    )
+    # Use string primitives so TradingNodeConfig can be JSON-encoded for streaming.
+    environment = "TESTNET" if config.deribit.testnet else "MAINNET"
+    product_types = ("OPTION", "FUTURE")
     api_key, api_secret = _resolve_api_credentials(config)
     if not dry_run and (api_key is None or api_secret is None):
         msg = (
@@ -58,7 +56,7 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         "api_key": api_key,
         "api_secret": api_secret,
         "environment": environment,
-        "product_types": (DeribitProductType.OPTION, DeribitProductType.FUTURE),
+        "product_types": product_types,
         "instrument_provider": instrument_provider,
         "auto_load_missing_instruments": True,
     }
@@ -66,7 +64,7 @@ def build_deribit_wiring(config: AppConfig, *, dry_run: bool) -> VenueClientWiri
         "api_key": api_key,
         "api_secret": api_secret,
         "environment": environment,
-        "product_types": (DeribitProductType.OPTION, DeribitProductType.FUTURE),
+        "product_types": product_types,
         "instrument_provider": instrument_provider,
     }
     return VenueClientWiring(

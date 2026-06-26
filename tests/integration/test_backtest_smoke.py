@@ -79,3 +79,24 @@ def test_build_trading_node_paper_btc_dry_run() -> None:
     finally:
         loop.close()
         asyncio.set_event_loop(None)
+
+
+def test_build_trading_node_paper_btc_streaming_dry_run(tmp_path: Path) -> None:
+    import asyncio
+
+    config = load_config(PAPER_BTC_PATH)
+    config = config.model_copy(
+        update={
+            "streaming": config.streaming.model_copy(
+                update={"enabled": True, "stream_path": str(tmp_path / "stream")}
+            )
+        }
+    )
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        node = build_trading_node(config)
+        assert node is not None
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)

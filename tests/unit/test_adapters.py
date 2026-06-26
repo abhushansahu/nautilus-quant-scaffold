@@ -28,6 +28,8 @@ def test_build_deribit_wiring_on_dry_run() -> None:
     assert DERIBIT in wiring.exec_clients
     assert DERIBIT in wiring.data_client_factories
     assert DERIBIT in wiring.exec_client_factories
+    wiring.data_clients[DERIBIT].json()
+    wiring.exec_clients[DERIBIT].json()
 
 
 def test_build_ib_wiring_skipped_on_dry_run() -> None:
